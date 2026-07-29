@@ -1,0 +1,404 @@
+// Wedding planner — Phase 1 data model.
+//
+// Money is stored everywhere as integer cents to keep arithmetic exact;
+// see src/lib/money.ts for the formatting/parsing helpers.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions       Session[]
+  collaborations Collaborator[] @relation("CollaboratorUser")
+  invitesSent    Collaborator[] @relation("CollaboratorInvitedBy")
+  tasksCompleted Task[]         @relation("TaskCompletedBy")
+
+  @@map("users")
+}
+
+/// Server-side sessions. Only the SHA-256 hash of the cookie token is stored,
+/// so a database leak does not hand out live sessions.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ---------------------------------------------------------------------------
+// Workspace
+// ---------------------------------------------------------------------------
+
+enum CollaboratorRole {
+  OWNER
+  PARTNER
+  PLANNER
+  FAMILY
+}
+
+enum CollaboratorStatus {
+  INVITED
+  ACTIVE
+  REMOVED
+}
+
+enum WorkspaceSection {
+  TASKS
+  BUDGET
+  GUESTS
+  VENDORS
+  SEATING
+  MOODBOARD
+  WEBSITE
+}
+
+enum AccessLevel {
+  NONE
+  VIEW
+  EDIT
+}
+
+model Wedding {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  title         String
+  weddingDate   DateTime
+  venueName     String?
+  location      String?
+  timezone      String   @default("UTC")
+  currency      String   @default("USD")
+  totalBudget   Int      @default(0)
+  coverImageUrl String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  collaborators    Collaborator[]
+  tasks            Task[]
+  budgetCategories BudgetCategory[]
+  budgetItems      BudgetItem[]
+  households       Household[]
+  guests           Guest[]
+  guestTags        GuestTag[]
+  mealOptions      MealOption[]
+
+  @@map("weddings")
+}
+
+/// Membership of a wedding workspace. A row exists from the moment an invite is
+/// sent; `userId` stays null until the invitee accepts and has an account.
+model Collaborator {
+  id              String             @id @default(cuid())
+  weddingId       String
+  userId          String?
+  email           String
+  name            String?
+  role            CollaboratorRole   @default(FAMILY)
+  status          CollaboratorStatus @default(INVITED)
+  inviteTokenHash String?            @unique
+  inviteExpiresAt DateTime?
+  invitedById     String?
+  joinedAt        DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  wedding       Wedding                  @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  user          User?                    @relation("CollaboratorUser", fields: [userId], references: [id], onDelete: SetNull)
+  invitedBy     User?                    @relation("CollaboratorInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  permissions   CollaboratorPermission[]
+  assignedTasks Task[]                   @relation("TaskAssignedTo")
+
+  @@unique([weddingId, email])
+  @@index([weddingId])
+  @@index([userId])
+  @@map("collaborators")
+}
+
+/// Per-section access. Rows are only consulted for non-owner roles; OWNER and
+/// PARTNER always resolve to EDIT (see src/lib/permissions.ts).
+model CollaboratorPermission {
+  id             String           @id @default(cuid())
+  collaboratorId String
+  section        WorkspaceSection
+  access         AccessLevel      @default(VIEW)
+
+  collaborator Collaborator @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+
+  @@unique([collaboratorId, section])
+  @@map("collaborator_permissions")
+}
+
+// ---------------------------------------------------------------------------
+// Checklist
+// ---------------------------------------------------------------------------
+
+enum Milestone {
+  TWELVE_MONTHS
+  NINE_MONTHS
+  SIX_MONTHS
+  THREE_MONTHS
+  ONE_MONTH
+  ONE_WEEK
+  DAY_OF
+  AFTER
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Task {
+  id            String       @id @default(cuid())
+  weddingId     String
+  title         String
+  description   String?
+  category      String       @default("General")
+  milestone     Milestone
+  dueDate       DateTime?
+  priority      TaskPriority @default(MEDIUM)
+  /// False for tasks generated from the default timeline catalog.
+  isCustom      Boolean      @default(false)
+  /// Stable key of the catalog entry this task came from, so regenerating the
+  /// timeline does not duplicate tasks the couple already has.
+  templateKey   String?
+  sortOrder     Int          @default(0)
+  completedAt   DateTime?
+  completedById String?
+  assignedToId  String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  wedding     Wedding       @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  completedBy User?         @relation("TaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  assignedTo  Collaborator? @relation("TaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@unique([weddingId, templateKey])
+  @@index([weddingId, milestone])
+  @@index([weddingId, dueDate])
+  @@map("tasks")
+}
+
+// ---------------------------------------------------------------------------
+// Budget
+// ---------------------------------------------------------------------------
+
+model BudgetCategory {
+  id                String   @id @default(cuid())
+  weddingId         String
+  name              String
+  plannedAmount     Int      @default(0)
+  /// Percentage of `plannedAmount` at which the UI warns the couple.
+  alertThresholdPct Int      @default(90)
+  color             String   @default("#B08968")
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  wedding Wedding      @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  items   BudgetItem[]
+
+  @@unique([weddingId, name])
+  @@index([weddingId])
+  @@map("budget_categories")
+}
+
+model BudgetItem {
+  id            String   @id @default(cuid())
+  weddingId     String
+  categoryId    String
+  name          String
+  vendorName    String?
+  plannedAmount Int      @default(0)
+  /// Set manually for one-off costs; when the item has payments, the payment
+  /// total is what the rollups use instead (see src/lib/domain/budget.ts).
+  actualAmount  Int      @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  wedding  Wedding        @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  category BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([weddingId])
+  @@index([categoryId])
+  @@map("budget_items")
+}
+
+/// Deposits and installments. Weddings are rarely paid in one go, so due-date
+/// reminders hang off individual payments rather than the line item.
+model Payment {
+  id           String    @id @default(cuid())
+  budgetItemId String
+  label        String    @default("Payment")
+  amount       Int
+  dueDate      DateTime?
+  paidAt       DateTime?
+  method       String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  budgetItem BudgetItem @relation(fields: [budgetItemId], references: [id], onDelete: Cascade)
+
+  @@index([budgetItemId])
+  @@index([dueDate])
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// Guests & RSVP
+// ---------------------------------------------------------------------------
+
+enum AgeGroup {
+  ADULT
+  CHILD
+  INFANT
+}
+
+enum RsvpStatus {
+  PENDING
+  ATTENDING
+  DECLINED
+  MAYBE
+}
+
+/// Invitations are addressed to a household, not to an individual, so the
+/// mailing address lives here and guests inherit it.
+model Household {
+  id           String   @id @default(cuid())
+  weddingId    String
+  name         String
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  guests  Guest[]
+
+  @@index([weddingId])
+  @@map("households")
+}
+
+model Guest {
+  id                  String   @id @default(cuid())
+  weddingId           String
+  householdId         String?
+  firstName           String
+  lastName            String
+  email               String?
+  phone               String?
+  ageGroup            AgeGroup @default(ADULT)
+  dietaryRestrictions String?
+  notes               String?
+  plusOneAllowed      Boolean  @default(false)
+  /// A plus-one is a full guest row pointing back at its host, so it can carry
+  /// its own meal choice and dietary needs.
+  plusOneOfGuestId    String?  @unique
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  wedding   Wedding           @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  household Household?        @relation(fields: [householdId], references: [id], onDelete: SetNull)
+  plusOneOf Guest?            @relation("GuestPlusOne", fields: [plusOneOfGuestId], references: [id], onDelete: Cascade)
+  plusOne   Guest?            @relation("GuestPlusOne")
+  rsvp      Rsvp?
+  tags      GuestTagOnGuest[]
+
+  @@index([weddingId])
+  @@index([householdId])
+  @@map("guests")
+}
+
+model GuestTag {
+  id        String   @id @default(cuid())
+  weddingId String
+  name      String
+  color     String   @default("#7D8471")
+  createdAt DateTime @default(now())
+
+  wedding Wedding           @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  guests  GuestTagOnGuest[]
+
+  @@unique([weddingId, name])
+  @@index([weddingId])
+  @@map("guest_tags")
+}
+
+model GuestTagOnGuest {
+  guestId String
+  tagId   String
+
+  guest Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  tag   GuestTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([guestId, tagId])
+  @@index([tagId])
+  @@map("guest_tags_on_guests")
+}
+
+model MealOption {
+  id          String   @id @default(cuid())
+  weddingId   String
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  rsvps   Rsvp[]
+
+  @@unique([weddingId, name])
+  @@index([weddingId])
+  @@map("meal_options")
+}
+
+model Rsvp {
+  id           String     @id @default(cuid())
+  guestId      String     @unique
+  status       RsvpStatus @default(PENDING)
+  mealOptionId String?
+  respondedAt  DateTime?
+  message      String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  guest      Guest       @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  mealOption MealOption? @relation(fields: [mealOptionId], references: [id], onDelete: SetNull)
+
+  @@index([mealOptionId])
+  @@map("rsvps")
+}
