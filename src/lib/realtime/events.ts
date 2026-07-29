@@ -14,7 +14,10 @@ export type WorkspaceResource =
   | "tasks"
   | "budget"
   | "guests"
-  | "collaborators";
+  | "collaborators"
+  | "seating"
+  | "site"
+  | "moodboard";
 
 export type WorkspaceChangedPayload = {
   weddingId: string;

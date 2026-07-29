@@ -26,9 +26,11 @@ model User {
   updatedAt    DateTime @updatedAt
 
   sessions       Session[]
-  collaborations Collaborator[] @relation("CollaboratorUser")
-  invitesSent    Collaborator[] @relation("CollaboratorInvitedBy")
-  tasksCompleted Task[]         @relation("TaskCompletedBy")
+  collaborations Collaborator[]  @relation("CollaboratorUser")
+  invitesSent    Collaborator[]  @relation("CollaboratorInvitedBy")
+  tasksCompleted Task[]          @relation("TaskCompletedBy")
+  uploads        Upload[]        @relation("UploadCreatedBy")
+  moodItems      MoodBoardItem[] @relation("MoodItemCreatedBy")
 
   @@map("users")
 }
@@ -106,6 +108,10 @@ model Wedding {
   guests           Guest[]
   guestTags        GuestTag[]
   mealOptions      MealOption[]
+  uploads          Upload[]
+  site             WeddingSite?
+  seatingTables    SeatingTable[]
+  moodBoard        MoodBoard?
 
   @@map("weddings")
 }
@@ -337,6 +343,7 @@ model Guest {
   plusOne   Guest?            @relation("GuestPlusOne")
   rsvp      Rsvp?
   tags      GuestTagOnGuest[]
+  seat      SeatAssignment?
 
   @@index([weddingId])
   @@index([householdId])
@@ -401,4 +408,215 @@ model Rsvp {
 
   @@index([mealOptionId])
   @@map("rsvps")
+}
+
+// ---------------------------------------------------------------------------
+// Uploads (Phase 2)
+// ---------------------------------------------------------------------------
+
+/// A stored file. The bytes live behind a storage driver (local disk in
+/// development, S3-compatible in production — see src/lib/storage), and this
+/// row is the only thing the rest of the app references.
+model Upload {
+  id           String   @id @default(cuid())
+  weddingId    String
+  /// Opaque key the storage driver resolves; never a user-supplied path.
+  storageKey   String   @unique
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  width        Int?
+  height       Int?
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  wedding       Wedding         @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  createdBy     User?           @relation("UploadCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  moodBoardItem MoodBoardItem?
+  siteCoverFor  WeddingSite?
+
+  @@index([weddingId])
+  @@map("uploads")
+}
+
+// ---------------------------------------------------------------------------
+// Wedding website (Phase 2)
+// ---------------------------------------------------------------------------
+
+enum SiteTemplate {
+  CLASSIC
+  GARDEN
+  MODERN
+}
+
+/// The couple's public-facing site. Exists whether or not it is published;
+/// `publishedAt` is what makes it reachable at /wedding/[slug].
+model WeddingSite {
+  id           String       @id @default(cuid())
+  weddingId    String       @unique
+  /// Public URL segment, separate from the workspace slug so the couple can
+  /// choose something shareable without changing internal links.
+  slug         String       @unique
+  template     SiteTemplate @default(CLASSIC)
+  headline     String?
+  intro        String?
+  storyTitle   String       @default("Our story")
+  story        String?
+  travelTitle  String       @default("Travel & stays")
+  travel       String?
+  registryNote String?
+  /// Shown to guests so they know when to reply by.
+  rsvpDeadline DateTime?
+  rsvpNote     String?
+  publishedAt  DateTime?
+  coverUploadId String?     @unique
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  wedding    Wedding        @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  coverImage Upload?        @relation(fields: [coverUploadId], references: [id], onDelete: SetNull)
+  events     SiteEvent[]
+  registry   RegistryLink[]
+
+  @@map("wedding_sites")
+}
+
+/// Ceremony, reception, welcome drinks, farewell brunch — anything with a time
+/// and a place that guests need to know about.
+model SiteEvent {
+  id          String   @id @default(cuid())
+  siteId      String
+  name        String
+  startsAt    DateTime
+  endsAt      DateTime?
+  venueName   String?
+  address     String?
+  description String?
+  dressCode   String?
+  mapUrl      String?
+  sortOrder   Int      @default(0)
+
+  site WeddingSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId])
+  @@map("site_events")
+}
+
+model RegistryLink {
+  id        String   @id @default(cuid())
+  siteId    String
+  label     String
+  url       String
+  note      String?
+  sortOrder Int      @default(0)
+
+  site WeddingSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId])
+  @@map("registry_links")
+}
+
+// ---------------------------------------------------------------------------
+// Seating chart (Phase 2)
+// ---------------------------------------------------------------------------
+
+enum TableShape {
+  ROUND
+  RECTANGLE
+  HEAD
+}
+
+/// A table on the floor plan. `x` and `y` are percentages of the canvas
+/// (0-100) rather than pixels, so a chart laid out on a laptop still reads
+/// correctly on a phone.
+model SeatingTable {
+  id        String     @id @default(cuid())
+  weddingId String
+  name      String
+  shape     TableShape @default(ROUND)
+  capacity  Int        @default(8)
+  x         Float      @default(50)
+  y         Float      @default(50)
+  rotation  Int        @default(0)
+  notes     String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  wedding     Wedding          @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  assignments SeatAssignment[]
+
+  @@unique([weddingId, name])
+  @@index([weddingId])
+  @@map("seating_tables")
+}
+
+/// One guest at one table. `guestId` is unique, so a guest cannot be seated in
+/// two places at once — the database enforces it rather than the UI.
+model SeatAssignment {
+  id        String   @id @default(cuid())
+  tableId   String
+  guestId   String   @unique
+  seatIndex Int?
+  createdAt DateTime @default(now())
+
+  table SeatingTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  guest Guest        @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@map("seat_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// Mood board (Phase 2)
+// ---------------------------------------------------------------------------
+
+enum MoodCategory {
+  ATTIRE
+  FLORALS
+  DECOR
+  VENUE
+  CAKE
+  STATIONERY
+  BEAUTY
+  OTHER
+}
+
+/// Created lazily the first time the couple opens the mood board. Sharing is a
+/// property of the board, so revoking a link kills access to every image at once.
+model MoodBoard {
+  id             String    @id @default(cuid())
+  weddingId      String    @unique
+  title          String    @default("Our vision")
+  /// Only the hash of the share token is stored, same as sessions and invites.
+  shareTokenHash String?   @unique
+  sharedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  wedding Wedding         @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  items   MoodBoardItem[]
+
+  @@map("mood_boards")
+}
+
+model MoodBoardItem {
+  id          String       @id @default(cuid())
+  boardId     String
+  uploadId    String?      @unique
+  category    MoodCategory @default(OTHER)
+  title       String?
+  note        String?
+  /// Where the couple found it, so credit survives the download.
+  sourceUrl   String?
+  sortOrder   Int          @default(0)
+  createdById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  board     MoodBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  upload    Upload?   @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("MoodItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([boardId, category])
+  @@map("mood_board_items")
 }

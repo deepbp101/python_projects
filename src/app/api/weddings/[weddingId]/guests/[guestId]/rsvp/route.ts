@@ -52,11 +52,19 @@ export const PUT = route(async (request: Request, { params }: Params) => {
     },
   });
 
+  // Someone who is no longer coming should not keep holding a seat.
+  const unseated =
+    input.status === "DECLINED" || input.status === "PENDING"
+      ? (await prisma.seatAssignment.deleteMany({ where: { guestId } })).count > 0
+      : false;
+
   const updated = await prisma.guest.findUniqueOrThrow({
     where: { id: guestId },
     include: guestInclude,
   });
 
   broadcastChange(weddingId, "guests", context.user.id);
-  return ok({ guest: updated });
+  if (unseated) broadcastChange(weddingId, "seating", context.user.id);
+
+  return ok({ guest: updated, unseated });
 });

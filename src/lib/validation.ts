@@ -25,6 +25,26 @@ const id = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
 const isoDate = z.iso.datetime({ offset: true }).or(z.iso.date());
 const nullableDate = isoDate.nullable().optional();
 
+/**
+ * Builds the PATCH counterpart of a create schema.
+ *
+ * `.partial()` alone is a trap: it makes keys optional but Zod still applies
+ * each field's `.default()` when the key is absent, so a PATCH that sends one
+ * field silently resets every other defaulted field. Dragging a table would
+ * reset its capacity; renaming a budget category would zero its budget.
+ * Stripping the defaults first means an omitted field stays omitted, and the
+ * route leaves the stored value alone.
+ */
+function partialForUpdate<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
+  const withoutDefaults = Object.fromEntries(
+    Object.entries(schema.shape).map(([key, field]) => [
+      key,
+      field instanceof z.ZodDefault ? field.unwrap() : field,
+    ]),
+  ) as T;
+  return z.object(withoutDefaults).partial();
+}
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -164,7 +184,7 @@ export const createBudgetCategorySchema = z.object({
     .default("#B08968"),
 });
 
-export const updateBudgetCategorySchema = createBudgetCategorySchema.partial();
+export const updateBudgetCategorySchema = partialForUpdate(createBudgetCategorySchema);
 
 export const createBudgetItemSchema = z.object({
   categoryId: id,
@@ -175,7 +195,7 @@ export const createBudgetItemSchema = z.object({
   notes: optionalText(2000),
 });
 
-export const updateBudgetItemSchema = createBudgetItemSchema.partial();
+export const updateBudgetItemSchema = partialForUpdate(createBudgetItemSchema);
 
 export const createPaymentSchema = z.object({
   label: z.string().trim().max(80).default("Payment"),
@@ -186,7 +206,7 @@ export const createPaymentSchema = z.object({
   notes: optionalText(1000),
 });
 
-export const updatePaymentSchema = createPaymentSchema.partial();
+export const updatePaymentSchema = partialForUpdate(createPaymentSchema);
 
 // ---------------------------------------------------------------------------
 // Guests
@@ -203,7 +223,7 @@ export const householdSchema = z.object({
   notes: optionalText(1000),
 });
 
-export const updateHouseholdSchema = householdSchema.partial();
+export const updateHouseholdSchema = partialForUpdate(householdSchema);
 
 export const createGuestSchema = z.object({
   firstName: trimmed(80),
@@ -218,7 +238,7 @@ export const createGuestSchema = z.object({
   tagIds: z.array(id).default([]),
 });
 
-export const updateGuestSchema = createGuestSchema.partial();
+export const updateGuestSchema = partialForUpdate(createGuestSchema);
 
 export const rsvpSchema = z.object({
   status: z.enum(["PENDING", "ATTENDING", "DECLINED", "MAYBE"]),
@@ -285,3 +305,117 @@ export function parseGuestCsv(text: string) {
     })
     .filter((guest) => guest.firstName !== "");
 }
+
+// ---------------------------------------------------------------------------
+// Seating chart (Phase 2)
+// ---------------------------------------------------------------------------
+
+/** Canvas coordinates are percentages, so a chart scales to any screen. */
+const percent = z.number().min(0).max(100);
+
+export const createSeatingTableSchema = z.object({
+  name: trimmed(60),
+  shape: z.enum(["ROUND", "RECTANGLE", "HEAD"]).default("ROUND"),
+  capacity: z.number().int().min(1).max(60).default(8),
+  x: percent.default(50),
+  y: percent.default(50),
+  rotation: z.number().int().min(0).max(359).default(0),
+  notes: optionalText(500),
+});
+
+export const updateSeatingTableSchema = partialForUpdate(createSeatingTableSchema);
+
+export const autoLayoutSchema = z.object({
+  perTable: z.number().int().min(2).max(20).default(8),
+});
+
+/** `tableId: null` takes the guest out of the chart. */
+export const assignSeatSchema = z.object({
+  guestId: id,
+  tableId: id.nullable(),
+});
+
+// ---------------------------------------------------------------------------
+// Wedding website (Phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Accepted loosely and normalised server-side by `siteSlugFrom`, so a couple
+ * who types "Sam & Alex" gets `sam-and-alex` rather than a validation error.
+ */
+const siteSlug = z.string().trim().min(1).max(80);
+
+export const updateSiteSchema = z.object({
+  slug: siteSlug.optional(),
+  template: z.enum(["CLASSIC", "GARDEN", "MODERN"]).optional(),
+  headline: optionalText(160),
+  intro: optionalText(600),
+  storyTitle: trimmed(80).optional(),
+  story: optionalText(5000),
+  travelTitle: trimmed(80).optional(),
+  travel: optionalText(5000),
+  registryNote: optionalText(600),
+  rsvpDeadline: nullableDate,
+  rsvpNote: optionalText(600),
+  coverUploadId: id.nullable().optional(),
+});
+
+export const publishSiteSchema = z.object({
+  published: z.boolean(),
+});
+
+export const siteEventSchema = z.object({
+  name: trimmed(80),
+  startsAt: isoDate,
+  endsAt: nullableDate,
+  venueName: optionalText(160),
+  address: optionalText(300),
+  description: optionalText(1000),
+  dressCode: optionalText(120),
+  mapUrl: z.url().max(500).nullable().optional(),
+  sortOrder: z.number().int().min(0).max(100).default(0),
+});
+
+export const updateSiteEventSchema = partialForUpdate(siteEventSchema);
+
+export const registryLinkSchema = z.object({
+  label: trimmed(80),
+  url: z.url().max(500),
+  note: optionalText(300),
+  sortOrder: z.number().int().min(0).max(100).default(0),
+});
+
+export const updateRegistryLinkSchema = partialForUpdate(registryLinkSchema);
+
+// ---------------------------------------------------------------------------
+// Mood board (Phase 2)
+// ---------------------------------------------------------------------------
+
+export const moodCategory = z.enum([
+  "ATTIRE",
+  "FLORALS",
+  "DECOR",
+  "VENUE",
+  "CAKE",
+  "STATIONERY",
+  "BEAUTY",
+  "OTHER",
+]);
+
+export const createMoodItemSchema = z.object({
+  uploadId: id.nullable().optional(),
+  category: moodCategory.default("OTHER"),
+  title: optionalText(120),
+  note: optionalText(1000),
+  sourceUrl: z.url().max(500).nullable().optional(),
+});
+
+export const updateMoodItemSchema = partialForUpdate(createMoodItemSchema);
+
+export const updateMoodBoardSchema = z.object({
+  title: trimmed(120).optional(),
+});
+
+export const shareMoodBoardSchema = z.object({
+  shared: z.boolean(),
+});

@@ -7,13 +7,17 @@
  *
  * Run with `npm run db:seed`.
  */
+import { rm } from "node:fs/promises";
 import "dotenv/config";
+import { makePng } from "./seed-images";
 import { hashPassword } from "@/lib/auth/password";
 import { addDays, startOfUtcDay, subDays } from "@/lib/dates";
 import { prisma } from "@/lib/db";
+import { siteSlugFrom } from "@/lib/domain/site";
 import { generateTimeline } from "@/lib/domain/timeline";
 import { defaultPermissionsForRole } from "@/lib/permissions";
 import { slugify } from "@/lib/services/wedding";
+import { buildStorageKey, getStorage } from "@/lib/storage";
 
 const DEMO_PASSWORD = "wedding-demo-2026";
 
@@ -27,6 +31,8 @@ async function main() {
   // Order matters only for users; everything else cascades from Wedding.
   await prisma.wedding.deleteMany({});
   await prisma.user.deleteMany({});
+  // Stored files are outside the database, so they need clearing separately.
+  await rm(process.env.UPLOAD_DIR ?? ".uploads", { recursive: true, force: true });
 
   console.log("Creating accounts…");
   const passwordHash = await hashPassword(DEMO_PASSWORD);
@@ -471,13 +477,187 @@ async function main() {
     });
   }
 
-  const [taskCount, guestCount] = await Promise.all([
+  // --- seating chart -------------------------------------------------------
+  console.log("Arranging the seating chart…");
+  const tableSpec = [
+    { name: "Head table", shape: "HEAD" as const, capacity: 8, x: 50, y: 12 },
+    { name: "Table 1", shape: "ROUND" as const, capacity: 8, x: 20, y: 40 },
+    { name: "Table 2", shape: "ROUND" as const, capacity: 8, x: 50, y: 40 },
+    { name: "Table 3", shape: "ROUND" as const, capacity: 8, x: 80, y: 40 },
+    { name: "Table 4", shape: "ROUND" as const, capacity: 6, x: 35, y: 70 },
+    { name: "Table 5", shape: "RECTANGLE" as const, capacity: 6, x: 68, y: 70 },
+  ];
+
+  const tableIds = new Map<string, string>();
+  for (const spec of tableSpec) {
+    const table = await prisma.seatingTable.create({
+      data: { weddingId: wedding.id, ...spec },
+    });
+    tableIds.set(spec.name, table.id);
+  }
+
+  // Seat most of the confirmed guests, leaving a few to place by hand so the
+  // "still to seat" list is not empty on first look.
+  const seatingPlan: Record<string, string[]> = {
+    "Head table": [
+      "Priya Whitfield",
+      "Yuki Nakamura",
+      "Owen Fitzgerald",
+      "Tom Whitfield",
+    ],
+    "Table 1": ["Ada Okafor", "Chidi Okafor", "Nkem Okafor"],
+    "Table 2": ["Céline Moreau", "Henri Moreau", "Margot Moreau"],
+    "Table 3": ["Ren Nakamura", "Sofia Nakamura", "Nadia Farouk"],
+  };
+
+  for (const [tableName, guestNames] of Object.entries(seatingPlan)) {
+    const tableId = tableIds.get(tableName);
+    if (!tableId) continue;
+    for (const guestName of guestNames) {
+      const guestId = createdGuests.get(guestName);
+      if (guestId) {
+        await prisma.seatAssignment.create({ data: { guestId, tableId } });
+      }
+    }
+  }
+
+  // --- wedding website -----------------------------------------------------
+  console.log("Publishing the wedding website…");
+  const site = await prisma.weddingSite.create({
+    data: {
+      weddingId: wedding.id,
+      slug: siteSlugFrom("Sam and Alex"),
+      template: "GARDEN",
+      headline: "Sam & Alex",
+      intro:
+        "We're getting married at The Old Mill, and we would love you there.",
+      storyTitle: "How we got here",
+      story: [
+        "We met in the queue for a coffee cart that had run out of coffee. Alex stayed to complain; Sam stayed because Alex was funny about it.",
+        "Seven years, two cities and one very opinionated cat later, we're doing this properly — in a barn, by a river, with everyone we love.",
+      ].join("\n\n"),
+      travelTitle: "Getting there & staying over",
+      travel: [
+        "The Old Mill is about ninety minutes north of New York City. Metro-North runs to Beacon, and we'll have a shuttle meeting the 2:14pm train.",
+        "We've held rooms at The Roundhouse and the Beacon Hotel under \"Okafor–Moreau\" until three weeks before the wedding.",
+      ].join("\n\n"),
+      registryNote:
+        "Your being there is genuinely the gift. If you'd like to mark the day with something, here's where we're registered.",
+      rsvpDeadline: subDays(weddingDate, 30),
+      rsvpNote:
+        "Please reply using the card in your invitation, or email us — whichever is easier.",
+      publishedAt: subDays(today, 30),
+      events: {
+        create: [
+          {
+            name: "Ceremony",
+            startsAt: new Date(weddingDate.getTime() + 15 * 60 * 60 * 1000),
+            venueName: "The Old Mill, riverside lawn",
+            address: "112 Mill Road, Beacon, NY 12508",
+            description: "Seats from 2:30pm. It's grass — bring sensible shoes.",
+            dressCode: "Garden formal",
+            sortOrder: 0,
+          },
+          {
+            name: "Drinks & dinner",
+            startsAt: new Date(weddingDate.getTime() + 17 * 60 * 60 * 1000),
+            venueName: "The Old Mill, barn",
+            address: "112 Mill Road, Beacon, NY 12508",
+            description: "Dinner at 6:30pm, dancing until late.",
+            sortOrder: 1,
+          },
+          {
+            name: "Farewell brunch",
+            startsAt: new Date(
+              addDays(weddingDate, 1).getTime() + 10 * 60 * 60 * 1000,
+            ),
+            venueName: "The Roundhouse",
+            address: "2 East Main Street, Beacon, NY 12508",
+            description: "Drop in any time before noon on your way home.",
+            sortOrder: 2,
+          },
+        ],
+      },
+      registry: {
+        create: [
+          {
+            label: "Crate & Barrel",
+            url: "https://www.crateandbarrel.com/gift-registry",
+            note: "Kitchen things, mostly.",
+            sortOrder: 0,
+          },
+          {
+            label: "Honeymoon fund",
+            url: "https://example.com/sam-and-alex-honeymoon",
+            note: "Towards two weeks in Portugal.",
+            sortOrder: 1,
+          },
+        ],
+      },
+    },
+  });
+
+  // --- mood board ----------------------------------------------------------
+  console.log("Filling the mood board…");
+  const board = await prisma.moodBoard.create({
+    data: { weddingId: wedding.id, title: "Our vision" },
+  });
+
+  const moodSpec = [
+    { category: "FLORALS" as const, title: "Loose garden roses", note: "Blush and cream, nothing too structured.", colour: [201, 160, 160] as [number, number, number], w: 600, h: 800 },
+    { category: "ATTIRE" as const, title: "Silk slip dress", note: "Bias cut, low back.", colour: [231, 222, 209] as [number, number, number], w: 600, h: 900 },
+    { category: "DECOR" as const, title: "Long tables, low candles", note: "Taper candles at different heights.", colour: [176, 137, 104] as [number, number, number], w: 900, h: 600 },
+    { category: "VENUE" as const, title: "Barn with the doors open", note: "Exactly the light we want at 6pm.", colour: [125, 132, 113] as [number, number, number], w: 900, h: 600 },
+    { category: "CAKE" as const, title: "Naked cake, seasonal fruit", note: "Not too sweet — ask about the lemon one.", colour: [222, 205, 180] as [number, number, number], w: 600, h: 700 },
+    { category: "STATIONERY" as const, title: "Letterpress, deckled edge", note: "Warm white stock, brown ink.", colour: [196, 178, 155] as [number, number, number], w: 800, h: 600 },
+  ];
+
+  const storage = getStorage();
+  for (const [index, spec] of moodSpec.entries()) {
+    const bytes = makePng(spec.w, spec.h, spec.colour);
+    const storageKey = buildStorageKey(wedding.id, "image/png");
+    await storage.put(storageKey, bytes, "image/png");
+
+    const upload = await prisma.upload.create({
+      data: {
+        weddingId: wedding.id,
+        storageKey,
+        originalName: `${spec.title.toLowerCase().replace(/\s+/g, "-")}.png`,
+        mimeType: "image/png",
+        sizeBytes: bytes.byteLength,
+        width: spec.w,
+        height: spec.h,
+        createdById: sam.id,
+      },
+    });
+
+    await prisma.moodBoardItem.create({
+      data: {
+        boardId: board.id,
+        uploadId: upload.id,
+        category: spec.category,
+        title: spec.title,
+        note: spec.note,
+        sortOrder: index,
+        createdById: sam.id,
+      },
+    });
+  }
+
+  const [taskCount, guestCount, seatedCount, moodCount] = await Promise.all([
     prisma.task.count({ where: { weddingId: wedding.id } }),
     prisma.guest.count({ where: { weddingId: wedding.id } }),
+    prisma.seatAssignment.count({
+      where: { table: { weddingId: wedding.id } },
+    }),
+    prisma.moodBoardItem.count({ where: { boardId: board.id } }),
   ]);
 
   console.log(`
-Seeded "${wedding.title}" — ${taskCount} tasks, ${guestCount} guests.
+Seeded "${wedding.title}" — ${taskCount} tasks, ${guestCount} guests,
+${seatedCount} seated across ${tableSpec.length} tables, ${moodCount} mood board images.
+
+  Public website: /wedding/${site.slug}
 
   Sign in with any of these (password: ${DEMO_PASSWORD})
     sam@example.com     owner
