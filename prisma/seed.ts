@@ -9,13 +9,14 @@
  */
 import { rm } from "node:fs/promises";
 import "dotenv/config";
-import { makePdf, makePng } from "./seed-images";
+import { makePdf, makePng, makeWav } from "./seed-images";
 import { hashPassword } from "@/lib/auth/password";
 import { hashToken } from "@/lib/auth/tokens";
 import { addDays, startOfUtcDay, subDays } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { siteSlugFrom } from "@/lib/domain/site";
 import { generateTimeline } from "@/lib/domain/timeline";
+import { scoreStyle } from "@/lib/domain/style";
 import { vendorSlugFrom } from "@/lib/domain/vendors";
 import { defaultPermissionsForRole } from "@/lib/permissions";
 import { slugify } from "@/lib/services/wedding";
@@ -30,10 +31,32 @@ const DEMO_PASSWORD = "wedding-demo-2026";
  */
 const FERN_TOKEN = "demo-florist-thread-token";
 
+const WEDDING_TIMEZONE = "America/New_York";
+
 const today = startOfUtcDay(new Date());
 const weddingDate = addDays(today, 243); // roughly eight months out
 
 const money = (dollars: number) => Math.round(dollars * 100);
+
+/**
+ * An instant for a wall-clock time in the wedding's timezone.
+ *
+ * Event times are instants, and the site renders them in the wedding's zone — so
+ * "3pm ceremony" has to be stored as the UTC moment that is 3pm in New York, not
+ * as 15:00 UTC. Derived from the zone rather than a hard-coded offset so it stays
+ * right across the daylight-saving boundary.
+ */
+function localTime(day: Date, hour: number, minute = 0): Date {
+  const guess = new Date(
+    Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hour, minute),
+  );
+  // What that guess reads as in the target zone, to measure the offset.
+  const asZoned = new Date(
+    guess.toLocaleString("en-US", { timeZone: WEDDING_TIMEZONE }),
+  );
+  const asUtc = new Date(guess.toLocaleString("en-US", { timeZone: "UTC" }));
+  return new Date(guess.getTime() + (asUtc.getTime() - asZoned.getTime()));
+}
 
 async function main() {
   console.log("Clearing existing data…");
@@ -72,6 +95,9 @@ async function main() {
       weddingDate,
       venueName: "The Old Mill",
       location: "Hudson Valley, NY",
+      // A real zone, not UTC: event times are instants, and the public site and
+      // itineraries render them where the wedding is.
+      timezone: WEDDING_TIMEZONE,
       currency: "USD",
       totalBudget: money(42_000),
     },
@@ -568,7 +594,7 @@ async function main() {
         create: [
           {
             name: "Ceremony",
-            startsAt: new Date(weddingDate.getTime() + 15 * 60 * 60 * 1000),
+            startsAt: localTime(weddingDate, 15, 0),
             venueName: "The Old Mill, riverside lawn",
             address: "112 Mill Road, Beacon, NY 12508",
             description: "Seats from 2:30pm. It's grass — bring sensible shoes.",
@@ -577,7 +603,7 @@ async function main() {
           },
           {
             name: "Drinks & dinner",
-            startsAt: new Date(weddingDate.getTime() + 17 * 60 * 60 * 1000),
+            startsAt: localTime(weddingDate, 17, 30),
             venueName: "The Old Mill, barn",
             address: "112 Mill Road, Beacon, NY 12508",
             description: "Dinner at 6:30pm, dancing until late.",
@@ -585,9 +611,7 @@ async function main() {
           },
           {
             name: "Farewell brunch",
-            startsAt: new Date(
-              addDays(weddingDate, 1).getTime() + 10 * 60 * 60 * 1000,
-            ),
+            startsAt: localTime(addDays(weddingDate, 1), 10, 30),
             venueName: "The Roundhouse",
             address: "2 East Main Street, Beacon, NY 12508",
             description: "Drop in any time before noon on your way home.",
@@ -1013,6 +1037,188 @@ async function main() {
     },
   });
 
+  // --- guest contributions, itineraries, style & tours ----------------------
+  console.log("Opening the gallery and guest book…");
+
+  await prisma.weddingSite.update({
+    where: { weddingId: wedding.id },
+    data: {
+      galleryEnabled: true,
+      galleryNote:
+        "Post anything from the day — most of these we'd never see otherwise.",
+      guestBookEnabled: true,
+      guestBookNote: "We'd rather hear your voice than read your handwriting.",
+      // On, so the demo has a moderation queue to clear.
+      moderateGuestPosts: true,
+    },
+  });
+
+  const galleryStorage = getStorage();
+
+  const gallerySpec = [
+    { title: "first-look", colour: [214, 190, 178] as [number, number, number], w: 900, h: 600, by: "Priya", caption: "The look on your faces.", approved: true },
+    { title: "long-table", colour: [176, 137, 104] as [number, number, number], w: 900, h: 600, by: "Devon", caption: "Nobody moved for three hours.", approved: true },
+    { title: "sparklers", colour: [64, 58, 70] as [number, number, number], w: 600, h: 800, by: "Errol", caption: null, approved: true },
+    // Deliberately left waiting, so the moderation queue is not empty.
+    { title: "dance-floor", colour: [120, 96, 112] as [number, number, number], w: 900, h: 600, by: null, caption: "Sorry about the focus.", approved: false },
+  ];
+
+  for (const spec of gallerySpec) {
+    const bytes = makePng(spec.w, spec.h, spec.colour);
+    const storageKey = buildStorageKey(wedding.id, "image/png");
+    await galleryStorage.put(storageKey, bytes, "image/png");
+
+    const upload = await prisma.upload.create({
+      data: {
+        weddingId: wedding.id,
+        storageKey,
+        originalName: `${spec.title}.png`,
+        mimeType: "image/png",
+        sizeBytes: bytes.byteLength,
+        width: spec.w,
+        height: spec.h,
+        createdById: null,
+      },
+    });
+
+    await prisma.galleryPhoto.create({
+      data: {
+        weddingId: wedding.id,
+        uploadId: upload.id,
+        caption: spec.caption,
+        uploaderName: spec.by,
+        approvedAt: spec.approved ? subDays(today, 1) : null,
+      },
+    });
+  }
+
+  const voiceBytes = makeWav();
+  const voiceKey = buildStorageKey(wedding.id, "audio/wav");
+  await galleryStorage.put(voiceKey, voiceBytes, "audio/wav");
+  const voiceUpload = await prisma.upload.create({
+    data: {
+      weddingId: wedding.id,
+      storageKey: voiceKey,
+      originalName: "a-message-for-you.wav",
+      mimeType: "audio/wav",
+      sizeBytes: voiceBytes.byteLength,
+      createdById: null,
+    },
+  });
+
+  await prisma.guestBookEntry.create({
+    data: {
+      weddingId: wedding.id,
+      kind: "VOICE",
+      guestName: "Nan",
+      message: "She insisted on doing it out loud.",
+      uploadId: voiceUpload.id,
+      approvedAt: subDays(today, 1),
+    },
+  });
+
+  for (const spec of [
+    { name: "Priya Raman", message: "Fifteen years since you met at that awful party. Worth the wait.", approved: true },
+    { name: "Marco Estevez", message: "You were right about the family style. Everyone stayed.", approved: true },
+    // Waiting, like the pending photo.
+    { name: "Someone at table 6", message: "GREAT WEDDING!!! whoever is reading this get the lemon cake", approved: false },
+  ]) {
+    await prisma.guestBookEntry.create({
+      data: {
+        weddingId: wedding.id,
+        kind: "TEXT",
+        guestName: spec.name,
+        message: spec.message,
+        approvedAt: spec.approved ? subDays(today, 1) : null,
+      },
+    });
+  }
+
+  console.log("Issuing itinerary links…");
+  const itineraryTokens = new Map<string, string>();
+  const namedGuests = await prisma.guest.findMany({
+    where: { weddingId: wedding.id },
+    select: { id: true, firstName: true, lastName: true, rsvp: { select: { status: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  for (const guest of namedGuests) {
+    const token = `demo-itinerary-${guest.id.slice(-8)}`;
+    await prisma.guest.update({
+      where: { id: guest.id },
+      data: { itineraryTokenHash: hashToken(token) },
+    });
+    itineraryTokens.set(`${guest.firstName} ${guest.lastName}`.trim(), token);
+  }
+
+  // Pick an attending guest for the printed demo link, so it shows a full schedule.
+  const demoGuest =
+    namedGuests.find((guest) => guest.rsvp?.status === "ATTENDING") ??
+    namedGuests[0];
+  const demoItineraryToken = itineraryTokens.get(
+    `${demoGuest.firstName} ${demoGuest.lastName}`.trim(),
+  );
+
+  console.log("Scoring the style quiz…");
+  const styleAnswers = {
+    venue: "barn",
+    palette: "blush",
+    formality: "garden-party",
+    evening: "longdinner",
+    light: "golden",
+    splurge: "flowers",
+  };
+  await prisma.styleProfile.create({
+    data: {
+      weddingId: wedding.id,
+      answers: styleAnswers,
+      themes: scoreStyle(styleAnswers, { FLORALS: 1, DECOR: 1, VENUE: 1, CAKE: 1, STATIONERY: 1, ATTIRE: 1 }),
+      // No summary: the seed does not call the model, and the scored themes are
+      // the feature. Retake the quiz in the app with a key set to fill this in.
+      summary: null,
+      model: null,
+    },
+  });
+
+  console.log("Adding a venue tour…");
+  const panoBytes = makePng(2000, 500, [125, 132, 113], true);
+  const panoKey = buildStorageKey(wedding.id, "image/png");
+  await galleryStorage.put(panoKey, panoBytes, "image/png");
+  const panoUpload = await prisma.upload.create({
+    data: {
+      weddingId: wedding.id,
+      storageKey: panoKey,
+      originalName: "the-old-mill-barn-360.png",
+      mimeType: "image/png",
+      sizeBytes: panoBytes.byteLength,
+      width: 2000,
+      height: 500,
+      createdById: sam.id,
+    },
+  });
+
+  await prisma.vendorMedia.create({
+    data: {
+      vendorId: vendorIds.get("mill")!,
+      kind: "PANORAMA",
+      uploadId: panoUpload.id,
+      caption: "Standing in the barn doorway, looking round.",
+      sortOrder: 0,
+      createdById: sam.id,
+    },
+  });
+
+  await prisma.vendorMedia.create({
+    data: {
+      vendorId: vendorIds.get("quarry")!,
+      kind: "TOUR_URL",
+      url: "https://example.com/tours/quarry-house",
+      caption: "Their own walkthrough (a placeholder link in the demo).",
+      sortOrder: 0,
+      createdById: sam.id,
+    },
+  });
+
   const [taskCount, guestCount, seatedCount, moodCount, vendorCount, messageCount] =
     await Promise.all([
       prisma.task.count({ where: { weddingId: wedding.id } }),
@@ -1027,14 +1233,23 @@ async function main() {
       }),
     ]);
 
+  const [photoCount, entryCount] = await Promise.all([
+    prisma.galleryPhoto.count({ where: { weddingId: wedding.id } }),
+    prisma.guestBookEntry.count({ where: { weddingId: wedding.id } }),
+  ]);
+
   console.log(`
 Seeded "${wedding.title}" — ${taskCount} tasks, ${guestCount} guests,
 ${seatedCount} seated across ${tableSpec.length} tables, ${moodCount} mood board images,
-${vendorCount} vendors and ${messageCount} messages.
+${vendorCount} vendors and ${messageCount} messages,
+${photoCount} guest photos and ${entryCount} guest book entries (one of each awaiting approval).
 
   Public website:   /wedding/${site.slug}
+  Guest photos:     /wedding/${site.slug}/gallery      (scan-and-post, no login)
+  Guest book:       /wedding/${site.slug}/guestbook
   Florist's thread: /vendor/${FERN_TOKEN}
-                    (no login — this is what a vendor sees)
+  ${demoGuest.firstName}'s itinerary: /itinerary/${demoItineraryToken}
+                    (personal — shows only their own day)
 
   Sign in with any of these (password: ${DEMO_PASSWORD})
     sam@example.com     owner

@@ -4,6 +4,10 @@ import {
   type ImageFormat,
   type ImageMeta,
 } from "@/lib/storage/images";
+import {
+  extensionForRecording,
+  type RecordingFormat,
+} from "@/lib/storage/media";
 
 /**
  * File sniffing for message attachments.
@@ -16,7 +20,12 @@ import {
  */
 
 export type DocumentFormat = "application/pdf";
-export type StoredFormat = ImageFormat | DocumentFormat;
+
+/**
+ * Every format the storage layer can hold a key for. Wider than what any single
+ * upload endpoint accepts — the endpoints narrow it, this is just the key namer.
+ */
+export type StoredFormat = ImageFormat | DocumentFormat | RecordingFormat;
 
 export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 
@@ -39,14 +48,16 @@ function isPdf(bytes: Uint8Array): boolean {
 }
 
 export function isImageFormat(format: StoredFormat): format is ImageFormat {
-  return format !== "application/pdf";
+  return format.startsWith("image/");
 }
 
 export function extensionForStored(format: StoredFormat): string {
-  return format === "application/pdf" ? "pdf" : extensionFor(format);
+  if (format === "application/pdf") return "pdf";
+  if (isImageFormat(format)) return extensionFor(format);
+  return extensionForRecording(format);
 }
 
-const FORMAT_LABELS: Record<StoredFormat, string> = {
+const FORMAT_LABELS: Partial<Record<StoredFormat, string>> = {
   "image/jpeg": "JPEG image",
   "image/png": "PNG image",
   "image/webp": "WebP image",

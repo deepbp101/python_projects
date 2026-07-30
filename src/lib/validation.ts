@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  MAX_CAPTION,
+  MAX_GUEST_MESSAGE,
+  MAX_GUEST_NAME,
+} from "@/lib/domain/contributions";
 import { MAX_MESSAGE_LENGTH } from "@/lib/domain/messaging";
 
 /**
@@ -359,6 +364,11 @@ export const updateSiteSchema = z.object({
   rsvpDeadline: nullableDate,
   rsvpNote: optionalText(600),
   coverUploadId: id.nullable().optional(),
+  galleryEnabled: z.boolean().optional(),
+  galleryNote: optionalText(600),
+  guestBookEnabled: z.boolean().optional(),
+  guestBookNote: optionalText(600),
+  moderateGuestPosts: z.boolean().optional(),
 });
 
 export const publishSiteSchema = z.object({
@@ -548,3 +558,93 @@ export const shareIntoThreadSchema = z
 export const revokeShareSchema = z.object({
   shareId: id,
 });
+
+// ---------------------------------------------------------------------------
+// Guest contributions, itineraries, AI and tours (Phase 4)
+// ---------------------------------------------------------------------------
+
+/** A guest posting a photo. Their name is whatever they type — unverified. */
+export const galleryUploadSchema = z.object({
+  uploaderName: z.string().trim().max(MAX_GUEST_NAME).optional(),
+  caption: z.string().trim().max(MAX_CAPTION).optional(),
+});
+
+export const guestBookKind = z.enum(["TEXT", "VOICE", "VIDEO"]);
+
+export const guestBookEntrySchema = z
+  .object({
+    kind: guestBookKind.default("TEXT"),
+    guestName: trimmed(MAX_GUEST_NAME),
+    message: z.string().trim().max(MAX_GUEST_MESSAGE).optional(),
+  })
+  .refine((value) => value.kind !== "TEXT" || Boolean(value.message), {
+    message: "Write a message, or record one instead.",
+    path: ["message"],
+  });
+
+/**
+ * Approving and hiding are independent: a photo can be approved and later pulled,
+ * and un-hiding should not silently un-approve it.
+ */
+export const moderateSubmissionSchema = z
+  .object({
+    approved: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+  })
+  .refine(
+    (value) => value.approved !== undefined || value.hidden !== undefined,
+    { message: "Nothing to change." },
+  );
+
+export const issueItinerariesSchema = z.object({
+  /** Replaces every existing link, invalidating any already sent. */
+  regenerate: z.boolean().default(false),
+});
+
+export const aiDraftKind = z.enum(["VOWS", "SPEECH", "THANK_YOU", "INVITATION"]);
+
+export const generateDraftSchema = z.object({
+  kind: aiDraftKind,
+  brief: trimmed(2000),
+  tone: z.enum(["WARM", "FUNNY", "FORMAL", "PLAIN"]).default("WARM"),
+  length: z.enum(["SHORT", "MEDIUM", "LONG"]).default("MEDIUM"),
+  title: optionalText(120),
+});
+
+export const styleQuizSchema = z.object({
+  /** Question id to chosen option id. Unknown keys are ignored when scoring. */
+  answers: z.record(z.string().max(40), z.string().max(40)),
+});
+
+export const vendorMediaKind = z.enum([
+  "PHOTO",
+  "PANORAMA",
+  "TOUR_URL",
+  "VIDEO_URL",
+]);
+
+/**
+ * A media item is either hosted by us (`uploadId`) or a link to someone else's
+ * viewer (`url`) — never both, and never neither.
+ */
+export const vendorMediaSchema = z
+  .object({
+    kind: vendorMediaKind,
+    uploadId: id.optional(),
+    url: z.url().max(500).optional(),
+    caption: optionalText(200),
+    sortOrder: z.number().int().min(0).max(100).default(0),
+  })
+  .refine((value) => Boolean(value.uploadId) !== Boolean(value.url), {
+    message: "Upload a file or give a link, not both.",
+    path: ["url"],
+  })
+  .refine(
+    (value) =>
+      (value.kind === "TOUR_URL" || value.kind === "VIDEO_URL") ===
+      Boolean(value.url),
+    {
+      message: "Tours and videos are links; photos and panoramas are uploads.",
+      path: ["kind"],
+    },
+  );

@@ -4,10 +4,11 @@ A shared workspace for planning a wedding: an auto-generated checklist, a
 budget that tracks deposits and final payments, a guest list with RSVPs and
 meal choices, and a countdown — all updating live for everyone helping.
 
-**Phases 1, 2 and 3 are complete** — core planning tools, the guest-facing
-wedding website, seating chart and mood board, and vendor coordination with
-per-vendor message threads. Phase 4 from the original brief (day-of features,
-guest photo gallery, AI assistants) is not built yet.
+**All four phases from the original brief are complete** — core planning tools,
+the guest-facing wedding website, seating chart and mood board, vendor
+coordination with per-vendor message threads, and the day-of features: a shared
+photo gallery, a virtual guest book, personal guest itineraries, 360° venue
+tours, and two assistants running on Claude Haiku 4.5.
 
 ## Stack
 
@@ -18,6 +19,7 @@ guest photo gallery, AI assistants) is not built yet.
 | Database | PostgreSQL 16 via Prisma 7 (`@prisma/adapter-pg`) |
 | Auth | Database-backed sessions in an HTTP-only cookie, bcrypt passwords |
 | Realtime | Socket.IO on a custom Node server (`server.ts`) |
+| AI | `claude-haiku-4-5` via `@anthropic-ai/sdk`, optional |
 | File storage | Pluggable driver; local disk today (`src/lib/storage`) |
 | Tests | Vitest |
 
@@ -39,6 +41,10 @@ npm run dev                   # http://localhost:3000
 `AUTH_SECRET` can be any long random string (`openssl rand -hex 32`). It keys
 the hashes of session and invite tokens, so changing it signs everyone out.
 
+`ANTHROPIC_API_KEY` is optional. Without it the writing assistant reports itself
+off rather than failing, and the style matchmaker still works — see **The
+assistants** below.
+
 ### Demo accounts
 
 After seeding, sign in with password `wedding-demo-2026`:
@@ -52,8 +58,11 @@ After seeding, sign in with password `wedding-demo-2026`:
 
 The seed is deliberately mid-planning — some RSVPs outstanding, one category
 over budget, one overdue deposit, a florist mid-negotiation — so every dashboard
-state is reachable without editing rows by hand. It also prints a working
-`/vendor/…` link, which is what a vendor sees with no account at all.
+state is reachable without editing rows by hand. It also prints working links to
+everything guests and vendors see with no account at all: the public site, the
+photo gallery, the guest book, a florist's message thread, and one guest's
+personal itinerary. A photo and a guest book entry are left unapproved, so the
+moderation queue is not empty on first look.
 
 ## Scripts
 
@@ -148,7 +157,88 @@ amount ever reaches a vendor. The share dialog shows the couple the exact payloa
 first, because that is the only thing that catches a number they typed into a
 payment label themselves.
 
+### Phase 4 — the day itself
+
+**Shared photo gallery** — guests post photos from their phones with no account at
+all, through a QR code printed for the tables. The code is generated server-side
+as SVG so it stays sharp at any print size, and scanning it opens straight onto
+the upload form rather than a browse view: someone scanning mid-reception wants to
+post the photo they just took.
+
+**Virtual guest book** — written notes, voice messages and short videos. The file
+pickers carry `capture` hints so a phone offers its recorder directly.
+
+**Moderation is on by default.** Anyone with the site link can post, so nothing
+appears until the couple approves it. Approving and hiding are independent flags,
+not one status: un-hiding never silently re-approves, a pulled item stays pulled
+even if moderation is later switched off, and switching moderation off publishes
+the waiting queue — which is what "I trust this crowd after all" should mean.
+
+**Personal guest itineraries** — each guest gets their own link showing only their
+day: their events, their table, their meal, their dietary note. A guest who
+declined, or has not replied, gets the date and a nudge instead of a schedule —
+sending arrival times and a table number to someone who said no is worse than
+sending nothing.
+
+**Virtual venue tours** — 360° panoramas on a vendor's listing, in a drag-to-pan
+viewer, plus embedded links to externally hosted walkthroughs. The viewer pans a
+repeating strip rather than projecting a sphere: no WebGL, no library, works on
+anything that can show a background image. The trade-off is honest — vertical look
+and true perspective are missing, so a panorama reads a little flatter than in a
+dedicated viewer.
+
+### The assistants
+
+Both run on **`claude-haiku-4-5`** — the cheapest and fastest current model, which
+is the right tier for short, well-specified generation. Nothing here needs deep
+reasoning, and a couple iterating on a toast cares more about latency than ceiling.
+
+**Writing assistant** — vows, speeches, thank-you notes and invitation wording.
+Grounded in a short, reviewable list of facts (names, date, venue, style) and
+instructed not to invent beyond it: it leaves `[brackets]` where it needs a detail
+rather than making one up. Drafts are saved with the brief that produced them and
+the model that wrote them, since a draft from last year was not written by whatever
+is current now.
+
+Limited to the couple. Vows and speeches are the most personal writing in the app,
+and a planner or a relative having them on tap is not a default anyone would pick.
+
+**Style matchmaker** — a six-question quiz scored into themes, palettes, decor
+notes and which vendor categories to book first. **The scoring is deterministic and
+model-free** (`src/lib/domain/style.ts`): the model writes only the summary
+paragraph. So the recommendations are reproducible, testable, and identical with or
+without an API key — the summary is simply absent when there is no key. The mood
+board feeds in as a weak signal, weighted well below a quiz answer.
+
+**With no `ANTHROPIC_API_KEY` set**, the writing assistant says so in a sentence
+and returns 503 rather than 500 — "the assistant is off" is a configuration state,
+not a crash. Every failure a couple can actually hit (no key, rejected key, rate
+limited, network down) becomes an explanation.
+
 ## Architecture notes
+
+**Event times are instants; calendar days are not.** Dates like a task due date are
+whole UTC days (`src/lib/dates.ts`). An event time is a moment, rendered in the
+wedding's own timezone by `formatEventWindow` — shared by the public site and the
+personal itineraries so there is one implementation. `timezone` is free text on the
+wedding, so an unrecognised zone falls back to UTC rather than throwing: a typo in
+a settings field must not take the public site down.
+
+**Each upload endpoint accepts one family of file.** `inspectImage` for mood
+boards, website covers and gallery photos; `inspectFile` (images plus PDF) for
+message attachments; `inspectRecording` (audio and video) for guest book entries.
+Three inspectors rather than one permissive check, so a video cannot be posted
+where a photo belongs — `tests/media.test.ts` pins each lane.
+
+**A guest's file is only readable while it is live.** Gallery photos and guest book
+recordings are served through the same visibility rule as the pages
+(`isPubliclyVisible`), so a pending or pulled submission is not readable by URL,
+and closing the gallery pulls its files with it.
+
+**The AI layer is optional by construction.** `src/lib/ai/client.ts` is the only
+place that talks to Anthropic; it reports itself unconfigured rather than throwing,
+and the style matchmaker's value does not depend on it. Prompts live apart from the
+client in `src/lib/ai/prompts.ts` so the wording is reviewable on its own.
 
 **Money is integer cents everywhere.** `src/lib/money.ts` handles parsing and
 formatting. Floats never touch an amount.
@@ -158,9 +248,10 @@ calendar-day arithmetic, and doing it in local time shifts tasks by a day
 across a DST boundary.
 
 **Domain logic is pure and separately tested.** `src/lib/domain/` holds timeline
-generation, budget rollups, RSVP counts, seating maths, thread unread counts and
-the vendor redaction rules as functions over plain objects with no database
-access — which is what the 172 tests in `tests/` exercise. Anything a client component needs (category labels, template themes)
+generation, budget rollups, RSVP counts, seating maths, thread unread counts,
+itinerary assembly, style scoring and the vendor redaction rules as functions over
+plain objects with no database access — which is what the 221 tests in `tests/`
+exercise. Anything a client component needs (category labels, template themes)
 belongs there too: importing it from `src/lib/services/` would drag Prisma into
 the browser bundle and fail the build.
 
@@ -221,8 +312,10 @@ three-method `StorageDriver` interface in `src/lib/storage/index.ts` —
 Nothing above that interface needs to change. Local disk assumes a single
 server with a persistent volume, so swap the driver before scaling out.
 
-Mood board and website images are capped at 10MB and must be JPEG, PNG, WebP or
-GIF. Message attachments go to 15MB and also accept PDFs, up to five per message.
+Mood board, website and gallery images are capped at 10MB and must be JPEG, PNG,
+WebP or GIF. Message attachments go to 15MB and also accept PDFs, up to five per
+message. Guest book recordings go to 50MB and accept WAV, MP3, M4A, Ogg, MP4, WebM
+and QuickTime.
 
 ## Known gaps
 
@@ -246,7 +339,17 @@ GIF. Message attachments go to 15MB and also accept PDFs, up to five per message
 - Changing the wedding date does not reschedule existing tasks; use "Refresh
   timeline" on the checklist to add anything newly missing.
 - Guests cannot RSVP from the public wedding site yet; it shows the deadline and
-  how to reply, and the couple records replies in the workspace.
-- Event times on the public site are rendered in UTC rather than the wedding's
-  timezone.
-- Uploaded images are stored at their original size — no thumbnailing yet.
+  how to reply, and the couple records replies in the workspace. This is the most
+  obvious remaining gap — the guest-facing side now does everything else.
+- Uploaded images and videos are stored at their original size. No thumbnailing
+  and no transcoding, so a long phone video is rejected on size rather than
+  compressed.
+- The guest book records through the file picker rather than in the page. Phones
+  offer their recorder from `capture`, but a laptop user has to find a file.
+- **Anonymous guest posts are not rate limited**, same as vendor replies. Anyone
+  with the site link can post repeatedly; moderation is the mitigation, and a real
+  deployment wants a limiter in front of `/api/public/[slug]/*`.
+- The panorama viewer pans rather than projects, so there is no vertical look and
+  no true perspective (see Phase 4 above).
+- The AI features have no usage cap. `max_tokens` is bounded per request, but
+  nothing stops a couple generating a hundred drafts.

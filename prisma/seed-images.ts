@@ -46,6 +46,11 @@ export function makePng(
   width: number,
   height: number,
   [r, g, b]: [number, number, number],
+  /**
+   * When true, colour also cycles across the width. Used for the demo panorama so
+   * that dragging the viewer visibly moves something.
+   */
+  banded = false,
 ): Buffer {
   const raw = Buffer.alloc(height * (1 + width * 3));
 
@@ -57,9 +62,15 @@ export function makePng(
     const shade = 0.75 + 0.25 * (y / Math.max(height - 1, 1));
     for (let x = 0; x < width; x += 1) {
       const at = rowStart + 1 + x * 3;
-      raw[at] = Math.min(255, Math.round(r * shade));
-      raw[at + 1] = Math.min(255, Math.round(g * shade));
-      raw[at + 2] = Math.min(255, Math.round(b * shade));
+      // A slow sweep plus a narrow band, so a panorama has landmarks to pan past.
+      const sweep = banded
+        ? 0.72 + 0.28 * Math.sin((x / width) * Math.PI * 2)
+        : 1;
+      const band = banded && x % 200 < 6 ? 0.55 : 1;
+      const tint = shade * sweep * band;
+      raw[at] = Math.min(255, Math.round(r * tint));
+      raw[at + 1] = Math.min(255, Math.round(g * tint));
+      raw[at + 2] = Math.min(255, Math.round(b * tint));
     }
   }
 
@@ -129,4 +140,42 @@ export function makePdf(title: string, lines: string[]): Uint8Array {
   pdf += `startxref\n${startXref}\n%%EOF\n`;
 
   return new Uint8Array(Buffer.from(pdf, "latin1"));
+}
+
+/**
+ * A short WAV tone, for the demo guest book voice note.
+ *
+ * A real, playable file rather than a stub: the upload path sniffs magic bytes and
+ * the page renders an <audio> element, so a placeholder would exercise neither.
+ * 8-bit mono at 8kHz keeps it small — it is a demo, not a recording.
+ */
+export function makeWav(seconds = 2, frequency = 320): Uint8Array {
+  const rate = 8000;
+  const samples = Math.round(seconds * rate);
+  const data = Buffer.alloc(samples);
+
+  for (let i = 0; i < samples; i += 1) {
+    const t = i / rate;
+    // Fade out, so it ends rather than clips.
+    const envelope = Math.max(0, 1 - t / seconds);
+    const value = Math.sin(2 * Math.PI * frequency * t) * envelope;
+    data[i] = Math.round(128 + value * 100);
+  }
+
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVE", 8, "ascii");
+  header.write("fmt ", 12, "ascii");
+  header.writeUInt32LE(16, 16); // fmt chunk size
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate, 28); // byte rate
+  header.writeUInt16LE(1, 32); // block align
+  header.writeUInt16LE(8, 34); // bits per sample
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(data.length, 40);
+
+  return new Uint8Array(Buffer.concat([header, data]));
 }

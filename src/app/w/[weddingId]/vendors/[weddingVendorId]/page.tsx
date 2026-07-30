@@ -5,8 +5,10 @@ import type { ThreadMessage } from "@/components/message-list";
 import { NoAccess } from "@/components/no-access";
 import { StarRating } from "@/components/stars";
 import { Badge, Card } from "@/components/ui";
+import { VendorMediaPanel } from "@/components/vendor-media";
 import { VendorSettings } from "@/components/vendor-settings";
 import { VendorThreadPanel, type ActiveShare } from "@/components/vendor-thread";
+import { prisma } from "@/lib/db";
 import { unreadCount } from "@/lib/domain/messaging";
 import {
   priceTierLabel,
@@ -29,7 +31,7 @@ type Params = { params: Promise<{ weddingId: string; weddingVendorId: string }> 
 
 export default async function VendorDetailPage({ params }: Params) {
   const { weddingId, weddingVendorId } = await params;
-  const { access } = await loadWorkspace(weddingId);
+  const { access, user } = await loadWorkspace(weddingId);
 
   if (!canSee(access, "VENDORS")) return <NoAccess section="Vendors" />;
 
@@ -41,10 +43,25 @@ export default async function VendorDetailPage({ params }: Params) {
 
   // Sharing a payment schedule needs budget access, and sharing the mood board
   // needs mood board access — so neither option is offered without it.
-  const [shareableItems, review, moodBoard] = await Promise.all([
+  const [shareableItems, review, moodBoard, listing, media] = await Promise.all([
     canSee(access, "BUDGET") ? loadShareableBudgetItems(weddingId) : null,
     loadOwnReview(weddingId, entry.vendor.id),
     canSee(access, "MOODBOARD") ? loadMoodBoardSummary(weddingId) : null,
+    prisma.vendor.findUnique({
+      where: { id: entry.vendor.id },
+      select: { createdById: true },
+    }),
+    prisma.vendorMedia.findMany({
+      where: { vendorId: entry.vendor.id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        kind: true,
+        uploadId: true,
+        url: true,
+        caption: true,
+      },
+    }),
   ]);
 
   const rating = summarizeRatings(entry.vendor.reviews);
@@ -149,6 +166,14 @@ export default async function VendorDetailPage({ params }: Params) {
           </dl>
         )}
       </Card>
+
+      <VendorMediaPanel
+        weddingId={weddingId}
+        vendorId={entry.vendor.id}
+        vendorName={entry.vendor.name}
+        canManage={canEdit && listing?.createdById === user.id}
+        media={media}
+      />
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <VendorThreadPanel

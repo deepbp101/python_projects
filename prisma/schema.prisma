@@ -36,6 +36,8 @@ model User {
   vendorReviews      VendorReview[]  @relation("VendorReviewAuthor")
   messagesSent       Message[]       @relation("MessageAuthor")
   sharesMade         ThreadShare[]   @relation("ThreadShareSharedBy")
+  vendorMediaAdded   VendorMedia[]   @relation("VendorMediaCreatedBy")
+  aiDrafts           AiDraft[]       @relation("AiDraftCreatedBy")
 
   @@map("users")
 }
@@ -119,6 +121,10 @@ model Wedding {
   moodBoard        MoodBoard?
   vendors          WeddingVendor[]
   vendorReviews    VendorReview[]
+  galleryPhotos    GalleryPhoto[]
+  guestBookEntries GuestBookEntry[]
+  aiDrafts         AiDraft[]
+  styleProfile     StyleProfile?
 
   @@map("weddings")
 }
@@ -343,6 +349,8 @@ model Guest {
   /// A plus-one is a full guest row pointing back at its host, so it can carry
   /// its own meal choice and dietary needs.
   plusOneOfGuestId    String?  @unique
+  /// Personal itinerary link. Only the hash is stored, like every other token.
+  itineraryTokenHash  String?  @unique
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -439,11 +447,14 @@ model Upload {
   createdById  String?
   createdAt    DateTime @default(now())
 
-  wedding       Wedding            @relation(fields: [weddingId], references: [id], onDelete: Cascade)
-  createdBy     User?              @relation("UploadCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  moodBoardItem MoodBoardItem?
-  siteCoverFor  WeddingSite?
-  attachedTo    MessageAttachment?
+  wedding        Wedding            @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  createdBy      User?              @relation("UploadCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  moodBoardItem  MoodBoardItem?
+  siteCoverFor   WeddingSite?
+  attachedTo     MessageAttachment?
+  galleryPhoto   GalleryPhoto?
+  guestBookEntry GuestBookEntry?
+  vendorMedia    VendorMedia?
 
   @@index([weddingId])
   @@map("uploads")
@@ -462,26 +473,35 @@ enum SiteTemplate {
 /// The couple's public-facing site. Exists whether or not it is published;
 /// `publishedAt` is what makes it reachable at /wedding/[slug].
 model WeddingSite {
-  id            String       @id @default(cuid())
-  weddingId     String       @unique
+  id                 String       @id @default(cuid())
+  weddingId          String       @unique
   /// Public URL segment, separate from the workspace slug so the couple can
   /// choose something shareable without changing internal links.
-  slug          String       @unique
-  template      SiteTemplate @default(CLASSIC)
-  headline      String?
-  intro         String?
-  storyTitle    String       @default("Our story")
-  story         String?
-  travelTitle   String       @default("Travel & stays")
-  travel        String?
-  registryNote  String?
+  slug               String       @unique
+  template           SiteTemplate @default(CLASSIC)
+  headline           String?
+  intro              String?
+  storyTitle         String       @default("Our story")
+  story              String?
+  travelTitle        String       @default("Travel & stays")
+  travel             String?
+  registryNote       String?
   /// Shown to guests so they know when to reply by.
-  rsvpDeadline  DateTime?
-  rsvpNote      String?
-  publishedAt   DateTime?
-  coverUploadId String?      @unique
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  rsvpDeadline       DateTime?
+  rsvpNote           String?
+  /// Guest-facing extras, off until the couple turns them on. They live under the
+  /// published site rather than behind their own token: the site link is already
+  /// the thing guests have, and a second link is a second thing to lose.
+  galleryEnabled     Boolean      @default(false)
+  galleryNote        String?
+  guestBookEnabled   Boolean      @default(false)
+  guestBookNote      String?
+  /// When true, guest submissions stay hidden until the couple approves them.
+  moderateGuestPosts Boolean      @default(true)
+  publishedAt        DateTime?
+  coverUploadId      String?      @unique
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   wedding    Wedding        @relation(fields: [weddingId], references: [id], onDelete: Cascade)
   coverImage Upload?        @relation(fields: [coverUploadId], references: [id], onDelete: SetNull)
@@ -677,9 +697,10 @@ model Vendor {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  createdBy  User?           @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  reviews    VendorReview[]
-  shortlists WeddingVendor[]
+  createdBy    User?           @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  reviews      VendorReview[]
+  shortlists   WeddingVendor[]
+  vendorMedias VendorMedia[]
 
   @@index([category])
   @@index([city])
@@ -838,4 +859,157 @@ model ThreadShare {
   @@unique([threadId, budgetItemId])
   @@index([threadId])
   @@map("thread_shares")
+}
+
+// ---------------------------------------------------------------------------
+// Guest contributions (Phase 4)
+// ---------------------------------------------------------------------------
+
+/// A photo a guest uploaded from the reception, or the couple added afterwards.
+///
+/// Guests reach this through the published wedding site — no account, no token of
+/// their own. `approvedAt` is what makes a submission visible when the couple has
+/// moderation on, which it is by default: anyone with the link can post, so the
+/// couple decides what appears rather than discovering it later.
+model GalleryPhoto {
+  id           String    @id @default(cuid())
+  weddingId    String
+  uploadId     String    @unique
+  caption      String?
+  /// Whatever the guest typed. Unverified by definition.
+  uploaderName String?
+  approvedAt   DateTime?
+  hiddenAt     DateTime?
+  createdAt    DateTime  @default(now())
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  upload  Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@index([weddingId, createdAt])
+  @@map("gallery_photos")
+}
+
+enum GuestBookKind {
+  TEXT
+  VOICE
+  VIDEO
+}
+
+/// A guest book entry. Voice and video are recordings stored like any other
+/// upload; text entries have no upload at all, which is why `uploadId` is
+/// nullable rather than the kind being implied by its presence.
+model GuestBookEntry {
+  id         String        @id @default(cuid())
+  weddingId  String
+  kind       GuestBookKind @default(TEXT)
+  guestName  String
+  message    String?
+  uploadId   String?       @unique
+  approvedAt DateTime?
+  hiddenAt   DateTime?
+  createdAt  DateTime      @default(now())
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  upload  Upload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+
+  @@index([weddingId, createdAt])
+  @@map("guest_book_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Vendor media & virtual tours (Phase 4)
+// ---------------------------------------------------------------------------
+
+enum VendorMediaKind {
+  PHOTO
+  /// Equirectangular panorama, shown in the drag-to-pan viewer.
+  PANORAMA
+  /// An externally hosted walkthrough (Matterport and friends), embedded.
+  TOUR_URL
+  VIDEO_URL
+}
+
+/// Media on a vendor's directory profile, including 360° venue tours.
+///
+/// Hosted media points at an Upload, which belongs to whichever wedding uploaded
+/// it — the bytes have an owner even though the listing is shared. Access is
+/// widened for exactly this case in src/lib/services/uploads.ts.
+model VendorMedia {
+  id          String          @id @default(cuid())
+  vendorId    String
+  kind        VendorMediaKind @default(PHOTO)
+  uploadId    String?         @unique
+  url         String?
+  caption     String?
+  sortOrder   Int             @default(0)
+  createdById String?
+  createdAt   DateTime        @default(now())
+
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  upload    Upload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  createdBy User?   @relation("VendorMediaCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, sortOrder])
+  @@map("vendor_media")
+}
+
+// ---------------------------------------------------------------------------
+// AI assistants (Phase 4)
+// ---------------------------------------------------------------------------
+
+enum AiDraftKind {
+  VOWS
+  SPEECH
+  THANK_YOU
+  INVITATION
+}
+
+/// A saved piece of generated writing.
+///
+/// The prompt is kept alongside the output so a draft can be regenerated or
+/// audited later, and `model` records which model wrote it — a draft from a year
+/// ago was not written by whatever is current today.
+model AiDraft {
+  id          String      @id @default(cuid())
+  weddingId   String
+  kind        AiDraftKind
+  title       String
+  /// What the couple asked for, as given to the model.
+  prompt      String
+  content     String
+  model       String
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("AiDraftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([weddingId, kind])
+  @@map("ai_drafts")
+}
+
+/// The couple's style quiz answers and the themes they scored into.
+///
+/// Answers and scores are stored, not just the prose: the matching is
+/// deterministic (see src/lib/domain/style.ts), so the recommendations can be
+/// recomputed without calling a model, and the model's contribution is only the
+/// summary paragraph.
+model StyleProfile {
+  id        String   @id @default(cuid())
+  weddingId String   @unique
+  /// Quiz answers keyed by question id.
+  answers   Json
+  /// Scored themes, highest first, as computed by the domain layer.
+  themes    Json
+  /// Model-written description of the couple's style. Null when no API key is
+  /// configured — the scored themes stand on their own.
+  summary   String?
+  model     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+
+  @@map("style_profiles")
 }

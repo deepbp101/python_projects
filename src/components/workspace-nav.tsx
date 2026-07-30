@@ -43,6 +43,8 @@ export function WorkspaceNav({
     { href: `${base}/seating`, label: "Seating chart", short: "Seating", icon: "▦", section: "SEATING" },
     { href: `${base}/moodboard`, label: "Mood board", short: "Mood", icon: "❋", section: "MOODBOARD" },
     { href: `${base}/website`, label: "Wedding website", short: "Site", icon: "◈", section: "WEBSITE" },
+    { href: `${base}/celebrations`, label: "Celebrations", short: "Guests", icon: "◉", section: "WEBSITE" },
+    { href: `${base}/assistant`, label: "Assistant", short: "Write", icon: "✎", section: "MOODBOARD" },
     { href: `${base}/settings`, label: "Settings", short: "More", icon: "⚙", section: null },
   ];
 

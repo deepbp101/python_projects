@@ -20,7 +20,10 @@ export type WorkspaceResource =
   | "moodboard"
   | "vendors"
   /** A message arrived — from a collaborator, or from a vendor with no account. */
-  | "messages";
+  | "messages"
+  /** A guest posted a photo or a guest book entry, with no account at all. */
+  | "gallery"
+  | "guestbook";
 
 export type WorkspaceChangedPayload = {
   weddingId: string;

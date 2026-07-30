@@ -1,6 +1,7 @@
 import { hashToken } from "@/lib/auth/tokens";
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
+import { isPubliclyVisible } from "@/lib/domain/contributions";
 import { hasAccess } from "@/lib/permissions";
 
 /**
@@ -11,8 +12,9 @@ import { hasAccess } from "@/lib/permissions";
  *   2. a valid mood board share token, for images on that board;
  *   3. a valid vendor thread token, for files sent in that thread and for images
  *      on a mood board shared into it;
- *   4. the cover image of a published wedding website, which is public by
- *      definition.
+ *   4. anything published on the wedding website — its cover image, and any
+ *      gallery photo or guest book recording that is live on it;
+ *   5. media on a vendor's directory listing, which every signed-in user can see.
  *
  * Tokens 2 and 3 arrive in the same `?share=` parameter, so a caller does not
  * have to know which kind of link it is holding.
@@ -29,15 +31,53 @@ export async function resolveUploadAccess(
       moodBoardItem: { include: { board: true } },
       siteCoverFor: { select: { publishedAt: true } },
       attachedTo: { select: { message: { select: { threadId: true } } } },
+      galleryPhoto: { select: { approvedAt: true, hiddenAt: true } },
+      guestBookEntry: { select: { approvedAt: true, hiddenAt: true } },
+      vendorMedia: { select: { id: true } },
     },
   });
   if (!upload) return null;
 
   const base = { storageKey: upload.storageKey, mimeType: upload.mimeType };
 
-  // 4. Cover image of a published site.
+  // 4a. Cover image of a published site.
   if (upload.siteCoverFor?.publishedAt) {
     return { ...base, allowed: true, isPublic: true };
+  }
+
+  // 4b. A gallery photo or guest book recording that is live on the published
+  // site. Gated on the same visibility rule the public pages use, so a pending or
+  // pulled submission is not readable by URL.
+  const contribution = upload.galleryPhoto ?? upload.guestBookEntry;
+  if (contribution) {
+    const site = await prisma.weddingSite.findUnique({
+      where: { weddingId: upload.weddingId },
+      select: {
+        publishedAt: true,
+        moderateGuestPosts: true,
+        galleryEnabled: true,
+        guestBookEnabled: true,
+      },
+    });
+
+    const sectionOpen = upload.galleryPhoto
+      ? site?.galleryEnabled
+      : site?.guestBookEnabled;
+
+    if (
+      site?.publishedAt &&
+      sectionOpen &&
+      isPubliclyVisible(contribution, site.moderateGuestPosts)
+    ) {
+      return { ...base, allowed: true, isPublic: true };
+    }
+  }
+
+  // 5. Media on a shared vendor listing — visible to any signed-in user, since
+  // the directory itself is. Not `isPublic`: it still needs an account.
+  if (upload.vendorMedia) {
+    const user = await getCurrentUser();
+    return { ...base, allowed: user !== null, isPublic: false };
   }
 
   const board = upload.moodBoardItem?.board;
@@ -91,11 +131,12 @@ export async function resolveUploadAccess(
 
   // A file is gated by whatever it is being used for; an unattached upload
   // (just posted, not yet saved to an item) falls back to the mood board.
-  const section = upload.siteCoverFor
-    ? "WEBSITE"
-    : upload.attachedTo
-      ? "VENDORS"
-      : "MOODBOARD";
+  const section =
+    upload.siteCoverFor || upload.galleryPhoto || upload.guestBookEntry
+      ? "WEBSITE"
+      : upload.attachedTo
+        ? "VENDORS"
+        : "MOODBOARD";
 
   const allowed = hasAccess(
     collaborator.role,

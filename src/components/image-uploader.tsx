@@ -24,7 +24,7 @@ export function ImageUploader({
   onCleared,
 }: {
   weddingId: string;
-  section: "MOODBOARD" | "WEBSITE";
+  section: "MOODBOARD" | "WEBSITE" | "VENDORS";
   disabled?: boolean;
   currentUploadId?: string | null;
   label?: string;

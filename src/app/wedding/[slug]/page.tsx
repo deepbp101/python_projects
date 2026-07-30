@@ -1,8 +1,10 @@
 import clsx from "clsx";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SITE_TEMPLATES } from "@/components/site/templates";
-import { formatLongDate } from "@/lib/dates";
+import { formatLongDate, timeZoneLabel } from "@/lib/dates";
+import { formatEventWindow } from "@/lib/domain/itinerary";
 import { loadPublishedSite } from "@/lib/services/site";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -30,15 +32,6 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   };
 }
 
-function formatEventTime(startsAt: Date, endsAt: Date | null): string {
-  const time = (date: Date) =>
-    date.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: "UTC",
-    });
-  return endsAt ? `${time(startsAt)} – ${time(endsAt)}` : time(startsAt);
-}
 
 export default async function PublicWeddingSite({ params }: Params) {
   const { slug } = await params;
@@ -115,8 +108,16 @@ export default async function PublicWeddingSite({ params }: Params) {
                     <h3 className={clsx("text-lg", theme.heading)}>
                       {event.name}
                     </h3>
+                    {/*
+                      Shown in the wedding's own timezone, shared with the
+                      personal itineraries so there is one implementation of it —
+                      a 4pm ceremony reads as 4pm for every guest.
+                    */}
                     <span className={clsx("text-sm", theme.muted)}>
-                      {formatEventTime(event.startsAt, event.endsAt)}
+                      {formatEventWindow(event, site.wedding.timezone)}{" "}
+                      <span className="opacity-70">
+                        {timeZoneLabel(site.wedding.timezone)}
+                      </span>
                     </span>
                   </div>
                   <p className={clsx("mt-1 text-sm", theme.muted)}>
@@ -234,6 +235,51 @@ export default async function PublicWeddingSite({ params }: Params) {
             {site.rsvpNote && (
               <p className="mt-3 max-w-xl text-base opacity-90">
                 {site.rsvpNote}
+              </p>
+            )}
+          </section>
+        )}
+
+        {/*
+          The gallery and guest book hang off this page rather than carrying links
+          of their own — guests already have this one.
+        */}
+        {(site.galleryEnabled || site.guestBookEnabled) && (
+          <section
+            className={clsx(
+              "flex flex-col rounded-2xl border p-6",
+              theme.card,
+              theme.align,
+            )}
+          >
+            <h2 className={clsx("text-xl", theme.heading)}>Join in</h2>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {site.galleryEnabled && (
+                <Link
+                  href={`/wedding/${site.slug}/gallery`}
+                  className={clsx(
+                    "rounded-full border px-5 py-2 text-sm transition-opacity hover:opacity-80",
+                    theme.card,
+                  )}
+                >
+                  Share your photos
+                </Link>
+              )}
+              {site.guestBookEnabled && (
+                <Link
+                  href={`/wedding/${site.slug}/guestbook`}
+                  className={clsx(
+                    "rounded-full border px-5 py-2 text-sm transition-opacity hover:opacity-80",
+                    theme.card,
+                  )}
+                >
+                  Sign the guest book
+                </Link>
+              )}
+            </div>
+            {(site.galleryNote || site.guestBookNote) && (
+              <p className={clsx("mt-3 max-w-xl text-sm", theme.muted)}>
+                {site.galleryNote ?? site.guestBookNote}
               </p>
             )}
           </section>

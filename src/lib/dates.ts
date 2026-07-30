@@ -63,6 +63,59 @@ export function formatDate(date: Date | string | null | undefined): string {
   });
 }
 
+/**
+ * Formats an instant in the wedding's own timezone.
+ *
+ * Event times are instants, not calendar days — a 4pm ceremony is 4pm where the
+ * wedding is, whoever is reading. `timezone` is free text on the wedding, so an
+ * unrecognised zone falls back to UTC rather than throwing: a typo in a settings
+ * field must not take the public site down.
+ */
+function zoneOrUtc(timeZone: string | null | undefined): string {
+  if (!timeZone) return "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
+export function formatTimeInZone(
+  date: Date | string,
+  timeZone: string | null | undefined,
+): string {
+  return new Date(date).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: zoneOrUtc(timeZone),
+  });
+}
+
+export function formatDateTimeInZone(
+  date: Date | string,
+  timeZone: string | null | undefined,
+): string {
+  return new Date(date).toLocaleString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: zoneOrUtc(timeZone),
+  });
+}
+
+/** The zone's short name — "EDT", "GMT+2" — so a guest knows which clock. */
+export function timeZoneLabel(timeZone: string | null | undefined): string {
+  const zone = zoneOrUtc(timeZone);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    timeZoneName: "short",
+  }).formatToParts(new Date());
+  return parts.find((part) => part.type === "timeZoneName")?.value ?? zone;
+}
+
 export function formatLongDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
   return d.toLocaleDateString("en-US", {

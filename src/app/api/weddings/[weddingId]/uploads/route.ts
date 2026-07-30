@@ -6,11 +6,13 @@ import { inspectImage, MAX_UPLOAD_BYTES } from "@/lib/storage/images";
 type Params = { params: Promise<{ weddingId: string }> };
 
 /**
- * Image upload, shared by the mood board and the website cover.
+ * Image upload, shared by the mood board, the website cover, the couple's own
+ * gallery additions, and vendor panoramas.
  *
  * The declared MIME type and filename are ignored for anything that matters:
  * the format comes from the file's own magic bytes and the storage key is
- * generated server-side.
+ * generated server-side. Recordings do not come through here — the guest book has
+ * its own path, so this endpoint stays images-only.
  */
 export const POST = route(async (request: Request, { params }: Params) => {
   const { weddingId } = await params;
@@ -19,8 +21,14 @@ export const POST = route(async (request: Request, { params }: Params) => {
   if (!form) throw badRequest("Expected a multipart form upload.");
 
   const section = form.get("section");
-  if (section !== "MOODBOARD" && section !== "WEBSITE") {
-    throw badRequest("Uploads must declare a section of MOODBOARD or WEBSITE.");
+  if (
+    section !== "MOODBOARD" &&
+    section !== "WEBSITE" &&
+    section !== "VENDORS"
+  ) {
+    throw badRequest(
+      "Uploads must declare a section of MOODBOARD, WEBSITE or VENDORS.",
+    );
   }
 
   // Permission is checked against the section the file is destined for.
