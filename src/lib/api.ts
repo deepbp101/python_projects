@@ -13,12 +13,19 @@ import {
   type PermissionRow,
 } from "@/lib/permissions";
 
-/** An error with an HTTP status attached, thrown freely inside route handlers. */
+/**
+ * An error with an HTTP status attached, thrown freely inside route handlers.
+ *
+ * `headers` is for the cases where the status alone is not the whole answer —
+ * `Retry-After` on a 429, say. Subclasses set it; `route` copies it onto the
+ * response.
+ */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
     readonly details?: unknown,
+    readonly headers?: Record<string, string>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -48,7 +55,7 @@ export function route<Args extends unknown[]>(
       if (error instanceof ApiError) {
         return NextResponse.json(
           { error: error.message, details: error.details },
-          { status: error.status },
+          { status: error.status, headers: error.headers },
         );
       }
       if (error instanceof ZodError) {

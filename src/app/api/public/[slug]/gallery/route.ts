@@ -1,8 +1,11 @@
 import { badRequest, notFound, ok, route } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { planDefinition } from "@/lib/domain/plans";
+import { guardGuestPost, pruneOldWindows } from "@/lib/rate-limit";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { loadPublicContext } from "@/lib/services/celebrations";
 import { readGuestForm, storeGuestPhoto } from "@/lib/services/guest-uploads";
+import { loadPlan, requireCapacity } from "@/lib/services/plan";
 import { galleryUploadSchema } from "@/lib/validation";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -24,6 +27,16 @@ export const POST = route(async (request: Request, { params }: Params) => {
     throw notFound("This gallery is not open.");
   }
 
+  // Rate limits first, before any file is read into memory — the cheapest place
+  // to refuse is before doing the expensive thing.
+  const plan = await loadPlan(site.weddingId);
+  await guardGuestPost(
+    request,
+    site.weddingId,
+    planDefinition(plan).guestPostsPerDay,
+  );
+  await requireCapacity(site.weddingId, "galleryPhotos", "photos");
+
   const { fields, file } = await readGuestForm(request);
   if (!file) throw badRequest("Choose a photo to share.");
 
@@ -44,6 +57,10 @@ export const POST = route(async (request: Request, { params }: Params) => {
 
   // No actor: every collaborator should see the new arrival.
   broadcastChange(site.weddingId, "gallery", null);
+
+  // No job runner here, so the limiter's old windows are swept by the endpoints
+  // that write them.
+  void pruneOldWindows().catch(() => {});
 
   return ok(
     {

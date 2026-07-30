@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db";
 import { defaultPermissionsForRole, resolveAllAccess } from "@/lib/permissions";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { inviteCollaboratorSchema } from "@/lib/validation";
+import { requireCapacity } from "@/lib/services/plan";
 
 type Params = { params: Promise<{ weddingId: string }> };
 
@@ -51,6 +52,10 @@ export const POST = route(async (request: Request, { params }: Params) => {
   const { weddingId } = await params;
   const context = await requireWorkspaceOwner(weddingId);
   const input = await parseBody(request, inviteCollaboratorSchema);
+
+  // The couple are not counted — a plan caps the helpers you bring in, not the
+  // two people getting married.
+  await requireCapacity(weddingId, "collaborators", "invited helpers");
 
   const existing = await prisma.collaborator.findUnique({
     where: { weddingId_email: { weddingId, email: input.email } },

@@ -216,6 +216,7 @@ function AddMediaForm({
         method: "POST",
         body: {
           kind,
+          weddingId,
           ...(needsUpload ? { uploadId } : { url }),
           caption: caption || null,
         },

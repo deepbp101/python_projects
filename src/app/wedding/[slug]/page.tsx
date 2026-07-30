@@ -2,6 +2,7 @@ import clsx from "clsx";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { RsvpLookup } from "@/components/rsvp-form";
 import { SITE_TEMPLATES } from "@/components/site/templates";
 import { formatLongDate, timeZoneLabel } from "@/lib/dates";
 import { formatEventWindow } from "@/lib/domain/itinerary";
@@ -218,27 +219,36 @@ export default async function PublicWeddingSite({ params }: Params) {
           </section>
         )}
 
-        {(site.rsvpNote || site.rsvpDeadline) && (
-          <section
-            className={clsx(
-              "flex flex-col rounded-2xl border p-6",
-              theme.card,
-              theme.align,
-            )}
-          >
-            <h2 className={clsx("text-xl", theme.heading)}>RSVP</h2>
-            {site.rsvpDeadline && (
-              <p className={clsx("mt-1 text-sm", theme.muted)}>
-                Please reply by {formatLongDate(site.rsvpDeadline)}
-              </p>
-            )}
-            {site.rsvpNote && (
-              <p className="mt-3 max-w-xl text-base opacity-90">
-                {site.rsvpNote}
-              </p>
-            )}
-          </section>
-        )}
+        {/*
+          Always shown, note or not: this is the one thing every guest arrives
+          here to do. They find themselves by name and are handed their own
+          link — the reply itself happens there, against a token, so nobody can
+          answer for someone else by typing their name.
+        */}
+        <section
+          className={clsx(
+            "flex flex-col rounded-2xl border p-6",
+            theme.card,
+            theme.align,
+          )}
+        >
+          <h2 className={clsx("text-xl", theme.heading)}>RSVP</h2>
+          {site.rsvpDeadline && (
+            <p className={clsx("mt-1 text-sm", theme.muted)}>
+              Please reply by {formatLongDate(site.rsvpDeadline)}
+            </p>
+          )}
+          {site.rsvpNote && (
+            <p className="mt-3 max-w-xl text-base opacity-90">
+              {site.rsvpNote}
+            </p>
+          )}
+          <p className={clsx("mt-3 text-sm", theme.muted)}>
+            Already have your personal link? Use that. Otherwise find yourself
+            below.
+          </p>
+          <RsvpLookup slug={site.slug} />
+        </section>
 
         {/*
           The gallery and guest book hang off this page rather than carrying links

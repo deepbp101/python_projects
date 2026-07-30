@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { ensureMoodBoard } from "@/lib/services/moodboard";
 import { shareMoodBoardSchema } from "@/lib/validation";
+import { requireFeature } from "@/lib/services/plan";
 
 type Params = { params: Promise<{ weddingId: string }> };
 
@@ -18,6 +19,9 @@ export const POST = route(async (request: Request, { params }: Params) => {
   const { weddingId } = await params;
   const context = await requireWorkspace(weddingId, "MOODBOARD", "EDIT");
   const { shared } = await parseBody(request, shareMoodBoardSchema);
+
+  // Only gate turning it on — revoking must always work, whatever the plan.
+  if (shared) await requireFeature(weddingId, "moodBoardSharing");
 
   const board = await ensureMoodBoard(weddingId);
 

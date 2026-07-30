@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { ensureMoodBoard } from "@/lib/services/moodboard";
 import { createMoodItemSchema, updateMoodBoardSchema } from "@/lib/validation";
+import { requireCapacity } from "@/lib/services/plan";
 
 type Params = { params: Promise<{ weddingId: string }> };
 
@@ -32,6 +33,7 @@ export const POST = route(async (request: Request, { params }: Params) => {
   const { weddingId } = await params;
   const context = await requireWorkspace(weddingId, "MOODBOARD", "EDIT");
   const input = await parseBody(request, createMoodItemSchema);
+  await requireCapacity(weddingId, "moodBoardItems", "mood board images");
 
   if (input.uploadId) {
     const upload = await prisma.upload.findFirst({

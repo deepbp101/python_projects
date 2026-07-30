@@ -169,9 +169,22 @@ export async function loadItineraryByToken(token: string) {
       firstName: true,
       lastName: true,
       dietaryRestrictions: true,
-      rsvp: { select: { status: true, mealOption: { select: { name: true } } } },
+      rsvp: {
+        select: {
+          status: true,
+          message: true,
+          mealOptionId: true,
+          mealOption: { select: { name: true } },
+        },
+      },
       household: { select: { name: true } },
-      plusOne: { select: { firstName: true, lastName: true } },
+      plusOne: {
+        select: {
+          firstName: true,
+          lastName: true,
+          rsvp: { select: { status: true, mealOptionId: true } },
+        },
+      },
       seat: { select: { table: { select: { name: true } } } },
       wedding: {
         select: {
@@ -180,10 +193,16 @@ export async function loadItineraryByToken(token: string) {
           timezone: true,
           venueName: true,
           location: true,
+          mealOptions: {
+            orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+            select: { id: true, name: true, description: true },
+          },
           site: {
             select: {
               travelTitle: true,
               travel: true,
+              rsvpDeadline: true,
+              rsvpNote: true,
               publishedAt: true,
               slug: true,
               events: {
@@ -232,6 +251,9 @@ export async function loadItineraryByToken(token: string) {
       location: wedding.location,
       travelTitle: wedding.site?.travelTitle ?? null,
       travel: wedding.site?.travel ?? null,
+      rsvpDeadline: wedding.site?.rsvpDeadline ?? null,
+      rsvpNote: wedding.site?.rsvpNote ?? null,
+      mealOptions: wedding.mealOptions,
       /** Only linked when the site is actually published. */
       siteSlug: wedding.site?.publishedAt ? wedding.site.slug : null,
     },
@@ -240,5 +262,19 @@ export async function loadItineraryByToken(token: string) {
       events: wedding.site?.events ?? [],
       timezone: wedding.timezone,
     }),
+    /** Current answers, so the form opens on what they last said. */
+    reply: {
+      status: guest.rsvp?.status ?? null,
+      mealOptionId: guest.rsvp?.mealOptionId ?? null,
+      message: guest.rsvp?.message ?? null,
+      dietaryRestrictions: guest.dietaryRestrictions,
+      plusOne: guest.plusOne
+        ? {
+            name: `${guest.plusOne.firstName} ${guest.plusOne.lastName}`.trim(),
+            status: guest.plusOne.rsvp?.status ?? null,
+            mealOptionId: guest.plusOne.rsvp?.mealOptionId ?? null,
+          }
+        : null,
+    },
   };
 }

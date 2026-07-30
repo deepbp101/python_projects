@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { PlanPanel } from "@/components/plan-panel";
 import { SignOutButton } from "@/components/sign-out-button";
 import { WeddingSettings } from "@/components/wedding-settings";
 import { prisma } from "@/lib/db";
 import { loadWorkspace } from "@/lib/page";
 import { canManageWorkspace, resolveAllAccess } from "@/lib/permissions";
+import { loadPlanSummary } from "@/lib/services/plan";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -21,6 +23,8 @@ export default async function SettingsPage({
     include: { permissions: true },
     orderBy: [{ role: "asc" }, { createdAt: "asc" }],
   });
+
+  const planSummary = await loadPlanSummary(weddingId);
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-5 p-5 sm:p-8">
@@ -56,6 +60,8 @@ export default async function SettingsPage({
           access: resolveAllAccess(collaborator.role, collaborator.permissions),
         }))}
       />
+
+      <PlanPanel {...planSummary} />
     </main>
   );
 }

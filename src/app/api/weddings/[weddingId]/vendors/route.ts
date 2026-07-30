@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { loadShortlist, uniqueVendorSlug } from "@/lib/services/vendors";
 import { addWeddingVendorSchema } from "@/lib/validation";
+import { requireCapacity } from "@/lib/services/plan";
 
 type Params = { params: Promise<{ weddingId: string }> };
 
@@ -23,6 +24,7 @@ export const POST = route(async (request: Request, { params }: Params) => {
   const { weddingId } = await params;
   const context = await requireWorkspace(weddingId, "VENDORS", "EDIT");
   const input = await parseBody(request, addWeddingVendorSchema);
+  await requireCapacity(weddingId, "vendors", "vendors");
 
   // The schema guarantees exactly one of the two is present.
   const vendorId = input.vendor

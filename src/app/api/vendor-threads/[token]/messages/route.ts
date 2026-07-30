@@ -1,7 +1,10 @@
 import { notFound, ok, route } from "@/lib/api";
 import { hashToken } from "@/lib/auth/tokens";
 import { prisma } from "@/lib/db";
+import { planDefinition } from "@/lib/domain/plans";
+import { guardGuestPost } from "@/lib/rate-limit";
 import { broadcastChange } from "@/lib/realtime/emit";
+import { loadPlan } from "@/lib/services/plan";
 import { readMessageForm, storeAttachments } from "@/lib/services/attachments";
 import { vendorReplySchema } from "@/lib/validation";
 
@@ -35,6 +38,15 @@ export const POST = route(async (request: Request, { params }: Params) => {
   if (!thread) throw notFound("This conversation is no longer available.");
 
   const { weddingId } = thread.weddingVendor;
+
+  // A vendor's link is a long-lived credential with no account behind it, so it
+  // gets the same treatment as any other anonymous poster.
+  await guardGuestPost(
+    request,
+    weddingId,
+    planDefinition(await loadPlan(weddingId)).guestPostsPerDay,
+  );
+
   const { fields, files } = await readMessageForm(request);
   const { body, authorName } = vendorReplySchema.parse(fields);
 

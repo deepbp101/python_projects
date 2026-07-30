@@ -93,6 +93,11 @@ enum AccessLevel {
   EDIT
 }
 
+enum Plan {
+  FREE
+  PRO
+}
+
 model Wedding {
   id            String   @id @default(cuid())
   slug          String   @unique
@@ -103,6 +108,10 @@ model Wedding {
   timezone      String   @default("UTC")
   currency      String   @default("USD")
   totalBudget   Int      @default(0)
+  /// What this workspace is entitled to. See src/lib/domain/plans.ts — the plan
+  /// is the only thing stored; every limit is derived from it, so changing the
+  /// allowances is a code change rather than a data migration.
+  plan          Plan     @default(FREE)
   coverImageUrl String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -125,6 +134,7 @@ model Wedding {
   guestBookEntries GuestBookEntry[]
   aiDrafts         AiDraft[]
   styleProfile     StyleProfile?
+  aiUsage          AiUsage[]
 
   @@map("weddings")
 }
@@ -1012,4 +1022,47 @@ model StyleProfile {
   wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
 
   @@map("style_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Limits & metering
+// ---------------------------------------------------------------------------
+
+/// A sliding-window counter, used to rate limit endpoints that have no account
+/// behind them.
+///
+/// Stored rather than held in memory so a restart does not hand an abuser a
+/// fresh allowance, and so it still works if this ever runs as more than one
+/// process. The bucket key embeds a hashed client address — raw IPs are never
+/// written down.
+model RateLimit {
+  id          String   @id @default(cuid())
+  bucket      String
+  windowStart DateTime
+  count       Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([bucket, windowStart])
+  @@index([windowStart])
+  @@map("rate_limits")
+}
+
+/// Model usage for one wedding in one calendar month.
+///
+/// Counts what the API actually reported rather than what we asked for, since a
+/// request can stop early — the bill follows real tokens, so the meter should
+/// too. `period` is `YYYY-MM` in UTC.
+model AiUsage {
+  id           String   @id @default(cuid())
+  weddingId    String
+  period       String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  requests     Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+
+  @@unique([weddingId, period])
+  @@map("ai_usage")
 }

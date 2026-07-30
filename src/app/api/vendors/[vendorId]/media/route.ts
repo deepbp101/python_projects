@@ -8,6 +8,7 @@ import {
   route,
 } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { requireFeature } from "@/lib/services/plan";
 import { vendorMediaSchema } from "@/lib/validation";
 
 type Params = { params: Promise<{ vendorId: string }> };
@@ -57,6 +58,17 @@ export const POST = route(async (request: Request, { params }: Params) => {
   if (vendor.createdById !== user.id) {
     throw forbidden("Only whoever added this listing can add media to it.");
   }
+
+  // The caller must actually be in the workspace they are claiming, or the
+  // entitlement check below would be trivially bypassed by naming someone
+  // else's Pro wedding.
+  const membership = await prisma.collaborator.findFirst({
+    where: { weddingId: input.weddingId, userId: user.id, status: "ACTIVE" },
+    select: { id: true },
+  });
+  if (!membership) throw notFound("That wedding does not exist.");
+
+  await requireFeature(input.weddingId, "venueTours");
 
   if (input.uploadId) {
     const upload = await prisma.upload.findFirst({

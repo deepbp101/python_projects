@@ -51,8 +51,19 @@ export type GenerateOptions = {
    * a toast, a thank-you note — so a low ceiling costs nothing and keeps a
    * runaway response from becoming a runaway bill. Well under the streaming
    * threshold, so these stay simple non-streaming calls.
+   *
+   * Callers pass what the *piece* needs; the plan layer lowers it further to
+   * whatever the workspace is entitled to. See src/lib/domain/plans.ts.
    */
   maxTokens?: number;
+};
+
+export type TokenUsage = { inputTokens: number; outputTokens: number };
+
+export type Generation = {
+  text: string;
+  /** What the API says it actually spent — what the meter is charged. */
+  usage: TokenUsage;
 };
 
 /**
@@ -67,7 +78,7 @@ export async function generateText({
   system,
   prompt,
   maxTokens = 2048,
-}: GenerateOptions): Promise<string> {
+}: GenerateOptions): Promise<Generation> {
   if (!isAiConfigured()) {
     throw new AiUnavailableError(
       "The writing assistant needs an Anthropic API key. Set ANTHROPIC_API_KEY and restart.",
@@ -96,7 +107,13 @@ export async function generateText({
       );
     }
 
-    return text;
+    return {
+      text,
+      usage: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+      },
+    };
   } catch (error) {
     if (error instanceof AiUnavailableError) throw error;
 

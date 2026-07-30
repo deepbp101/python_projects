@@ -66,6 +66,10 @@ async function main() {
   await prisma.wedding.deleteMany({});
   await prisma.vendor.deleteMany({});
   await prisma.user.deleteMany({});
+  // Rate limit windows are keyed by string, not by foreign key, so they survive
+  // everything above. Cleared too: reseeding to try the guest pages and finding
+  // yourself still throttled from the last run is nobody's idea of a fresh start.
+  await prisma.rateLimit.deleteMany({});
   // Stored files are outside the database, so they need clearing separately.
   await rm(process.env.UPLOAD_DIR ?? ".uploads", { recursive: true, force: true });
 
@@ -100,6 +104,10 @@ async function main() {
       timezone: WEDDING_TIMEZONE,
       currency: "USD",
       totalBudget: money(42_000),
+      // Pro, because the demo is meant to show the whole product — vendor
+      // messaging, venue tours and recorded guest book entries are all Pro, and
+      // on Free the seeded florist thread would answer 402 instead of opening.
+      plan: "PRO",
     },
   });
 
@@ -1239,7 +1247,7 @@ async function main() {
   ]);
 
   console.log(`
-Seeded "${wedding.title}" — ${taskCount} tasks, ${guestCount} guests,
+Seeded "${wedding.title}" on the ${wedding.plan} plan — ${taskCount} tasks, ${guestCount} guests,
 ${seatedCount} seated across ${tableSpec.length} tables, ${moodCount} mood board images,
 ${vendorCount} vendors and ${messageCount} messages,
 ${photoCount} guest photos and ${entryCount} guest book entries (one of each awaiting approval).
@@ -1249,7 +1257,7 @@ ${photoCount} guest photos and ${entryCount} guest book entries (one of each awa
   Guest book:       /wedding/${site.slug}/guestbook
   Florist's thread: /vendor/${FERN_TOKEN}
   ${demoGuest.firstName}'s itinerary: /itinerary/${demoItineraryToken}
-                    (personal — shows only their own day)
+                    (personal — shows only their own day, and where they RSVP)
 
   Sign in with any of these (password: ${DEMO_PASSWORD})
     sam@example.com     owner

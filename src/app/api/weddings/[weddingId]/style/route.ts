@@ -1,8 +1,15 @@
 import { ok, parseBody, requireWorkspace, route } from "@/lib/api";
 import { AI_MODEL, AiUnavailableError, generateText } from "@/lib/ai/client";
 import { buildStyleSummaryRequest } from "@/lib/ai/prompts";
+import { canGenerate, outputTokenBudget } from "@/lib/domain/plans";
 import { THEME_PROFILES } from "@/lib/domain/style";
 import { loadDraftContext } from "@/lib/services/assistant";
+import {
+  loadAiUsage,
+  loadPlan,
+  recordAiUsage,
+  requireFeature,
+} from "@/lib/services/plan";
 import {
   loadStyleProfile,
   saveStyleProfile,
@@ -34,12 +41,19 @@ export const PUT = route(async (request: Request, { params }: Params) => {
   await requireWorkspace(weddingId, "MOODBOARD", "EDIT");
   const { answers } = await parseBody(request, styleQuizSchema);
 
+  await requireFeature(weddingId, "styleMatchmaker");
+
   const { scored, leaders, decor } = await scoreForWedding(weddingId, answers);
 
   let summary: string | null = null;
   let model: string | null = null;
 
-  if (leaders.length > 0) {
+  const plan = await loadPlan(weddingId);
+  const usage = await loadAiUsage(weddingId);
+
+  // The summary is the only part a model touches, so a spent budget costs the
+  // paragraph and nothing else — the scored themes below are already computed.
+  if (leaders.length > 0 && canGenerate(plan, usage.used)) {
     const { system, prompt, maxTokens } = buildStyleSummaryRequest({
       themes: leaders.map((entry) => ({
         label: THEME_PROFILES[entry.theme].label,
@@ -50,8 +64,14 @@ export const PUT = route(async (request: Request, { params }: Params) => {
     });
 
     try {
-      summary = await generateText({ system, prompt, maxTokens });
+      const generation = await generateText({
+        system,
+        prompt,
+        maxTokens: outputTokenBudget(plan, usage.used, maxTokens),
+      });
+      summary = generation.text;
       model = AI_MODEL;
+      await recordAiUsage(weddingId, generation.usage);
     } catch (error) {
       // A missing key is not a failure here — the scored themes are the feature.
       if (!(error instanceof AiUnavailableError)) throw error;

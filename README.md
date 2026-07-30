@@ -180,6 +180,19 @@ declined, or has not replied, gets the date and a nudge instead of a schedule �
 sending arrival times and a table number to someone who said no is worse than
 sending nothing.
 
+**Guests reply from the site.** A guest who has their personal link replies there
+— attending, maybe or declining, with a meal, a dietary note, a message and an
+answer for a plus-one they are hosting. Replies can be changed; a form that works
+once is just a phone call to the couple later. A guest who has lost the link finds
+themselves by name on the public site and is handed one.
+
+The name lookup is the weak link and is treated as one. A name is not a secret, so
+it is rate limited, it never lists names, and an ambiguous match returns nothing
+rather than guessing — you must already know the name to match it, and two guests
+with the same name reveal neither. The reply itself always happens against the
+token, never against a typed name, so nobody replies for someone else by guessing.
+Couples who want none of this can send the personal links directly.
+
 **Virtual venue tours** — 360° panoramas on a vendor's listing, in a drag-to-pan
 viewer, plus embedded links to externally hosted walkthroughs. The viewer pans a
 repeating strip rather than projecting a sphere: no WebGL, no library, works on
@@ -214,6 +227,67 @@ board feeds in as a weak signal, weighted well below a quiz answer.
 and returns 503 rather than 500 — "the assistant is off" is a configuration state,
 not a crash. Every failure a couple can actually hit (no key, rejected key, rate
 limited, network down) becomes an explanation.
+
+## Plans and limits
+
+`FREE` and `PRO` live in `src/lib/domain/plans.ts` — one table, no per-wedding
+override rows to drift. The only thing stored on a wedding is the plan name;
+every number is derived from it, so changing an allowance takes effect
+immediately for everyone on that plan. The same table drives enforcement and the
+settings panel, because a UI that offers what the server then refuses is worse
+than no UI.
+
+Free is a real product: a couple can plan a small wedding on it. What it caps is
+the expensive surface — model tokens, guest uploads, and the vendor and tour
+features that cost storage and support.
+
+|                        | Free   | Pro       |
+| ---------------------- | ------ | --------- |
+| Guests                 | 40     | unlimited |
+| Helpers                | 2      | unlimited |
+| Vendors                | 5      | unlimited |
+| Mood board items       | 20     | unlimited |
+| Gallery photos         | 50     | unlimited |
+| Guest book entries     | 25     | unlimited |
+| Tables                 | 8      | unlimited |
+| Saved AI drafts        | 5      | unlimited |
+| Assistant tokens/month | 30,000 | 500,000   |
+| Output tokens/request  | 1,024  | 4,096     |
+| Guest posts/day        | 100    | 2,000     |
+
+Vendor messaging, venue tours, recorded guest book entries and editable timeline
+templates are Pro only.
+
+**Limits answer 402, not 403.** The caller is who they say they are and is
+allowed to do this in principle — the workspace just is not paying for it, and a
+client should show an upgrade prompt rather than an access error.
+
+**Capacity is checked for the whole batch.** Importing 30 guests into a 40-guest
+plan with 20 already there is refused outright rather than applied halfway.
+
+**Tokens are charged after the call, from what the API reported** — not from the
+requested `max_tokens`, so a generation that stops early costs less and the meter
+agrees with the bill. A failed request is free. The month's remainder also lowers
+the request's own ceiling, so the last generation of the month comes back short
+rather than not at all — but never shorter than a usable minimum.
+
+### Rate limiting the anonymous surfaces
+
+Guest photos, guest book entries, vendor replies and RSVPs all arrive with no
+account behind them, so they go through `src/lib/rate-limit.ts`: fixed windows
+counted in Postgres, not a bucket in memory. A restart must not hand an abuser a
+fresh allowance, and this can legitimately run as more than one process, where
+per-process counters would multiply the real limit by the process count.
+
+Three windows, each stopping something different: a burst (5/min per address), a
+sustained hourly rate (30/hr per address), and a per-wedding daily cap from the
+plan — keyed by the wedding alone, so rotating addresses does not reset it. The
+increment happens before the decision, so hammering a limited endpoint keeps it
+limited rather than resetting it.
+
+**Addresses are hashed with `AUTH_SECRET` before they are stored.** A guest
+posting a photo has not agreed to us keeping their IP, and we do not need it —
+only whether two requests came from the same place.
 
 ## Architecture notes
 
@@ -324,10 +398,6 @@ and QuickTime.
 - Invite links and share links are shown in the UI to copy manually — no email
   provider is wired up yet. This bites hardest on vendor links, which currently
   have to be pasted into an email by hand.
-- **Anonymous vendor replies are not rate limited.** Anyone holding a thread link
-  can post as often as they like. The link is revocable, which is the mitigation,
-  but a real deployment wants a limiter in front of
-  `/api/vendor-threads/[token]/messages`.
 - The vendor directory has no moderation queue. Only whoever created a listing can
   edit it, and reviews require the vendor to be on your shortlist, but nothing
   stops a duplicate listing for the same business.
@@ -338,18 +408,18 @@ and QuickTime.
   the database, so couples can't edit the templates themselves.
 - Changing the wedding date does not reschedule existing tasks; use "Refresh
   timeline" on the checklist to add anything newly missing.
-- Guests cannot RSVP from the public wedding site yet; it shows the deadline and
-  how to reply, and the couple records replies in the workspace. This is the most
-  obvious remaining gap — the guest-facing side now does everything else.
 - Uploaded images and videos are stored at their original size. No thumbnailing
   and no transcoding, so a long phone video is rejected on size rather than
   compressed.
 - The guest book records through the file picker rather than in the page. Phones
   offer their recorder from `capture`, but a laptop user has to find a file.
-- **Anonymous guest posts are not rate limited**, same as vendor replies. Anyone
-  with the site link can post repeatedly; moderation is the mitigation, and a real
-  deployment wants a limiter in front of `/api/public/[slug]/*`.
 - The panorama viewer pans rather than projects, so there is no vertical look and
   no true perspective (see Phase 4 above).
-- The AI features have no usage cap. `max_tokens` is bounded per request, but
-  nothing stops a couple generating a hundred drafts.
+- **Nobody can actually buy Pro.** The plan is a column on the wedding, set by
+  hand or in the seed; there is no billing provider, no checkout and no way for a
+  couple to upgrade themselves.
+- Rate limiting uses fixed windows, which can allow up to twice the nominal rate
+  across a window boundary. Fine for stopping a script, not a precise meter.
+- Rate limit windows are pruned opportunistically by the endpoints that write
+  them, since there is no job runner. A site nobody visits keeps two days of rows
+  until someone does.

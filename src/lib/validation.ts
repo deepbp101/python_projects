@@ -569,6 +569,22 @@ export const galleryUploadSchema = z.object({
   caption: z.string().trim().max(MAX_CAPTION).optional(),
 });
 
+/** A guest replying from their own itinerary link. */
+export const publicRsvpSchema = z.object({
+  status: z.enum(["ATTENDING", "DECLINED", "MAYBE"]),
+  mealOptionId: id.nullable().optional(),
+  dietaryRestrictions: optionalText(500),
+  message: optionalText(1000),
+  /** Only honoured when this guest is actually hosting a plus-one. */
+  plusOneStatus: z.enum(["ATTENDING", "DECLINED", "MAYBE"]).optional(),
+  plusOneMealOptionId: id.nullable().optional(),
+});
+
+export const rsvpLookupSchema = z.object({
+  firstName: trimmed(80),
+  lastName: trimmed(80),
+});
+
 export const guestBookKind = z.enum(["TEXT", "VOICE", "VIDEO"]);
 
 export const guestBookEntrySchema = z
@@ -630,6 +646,12 @@ export const vendorMediaKind = z.enum([
 export const vendorMediaSchema = z
   .object({
     kind: vendorMediaKind,
+    /**
+     * Which workspace the caller is acting for. The vendor listing is shared, so
+     * it has no plan of its own — entitlement comes from the wedding adding the
+     * media, and naming it explicitly beats guessing.
+     */
+    weddingId: id,
     uploadId: id.optional(),
     url: z.url().max(500).optional(),
     caption: optionalText(200),

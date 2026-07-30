@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { ensureThread } from "@/lib/services/vendors";
 import { threadAccessSchema } from "@/lib/validation";
+import { requireFeature } from "@/lib/services/plan";
 
 type Params = { params: Promise<{ weddingId: string; weddingVendorId: string }> };
 
@@ -20,6 +21,9 @@ export const POST = route(async (request: Request, { params }: Params) => {
   const { weddingId, weddingVendorId } = await params;
   const context = await requireWorkspace(weddingId, "VENDORS", "EDIT");
   const { granted } = await parseBody(request, threadAccessSchema);
+
+  // Gate handing a link out, never taking one back.
+  if (granted) await requireFeature(weddingId, "vendorThreads");
 
   const entry = await prisma.weddingVendor.findFirst({
     where: { id: weddingVendorId, weddingId },

@@ -4,6 +4,7 @@ import { countMeals, countRsvps, dietaryNotes } from "@/lib/domain/rsvp";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { guestInclude } from "@/lib/services/guests";
 import { createGuestSchema } from "@/lib/validation";
+import { requireCapacity } from "@/lib/services/plan";
 
 type Params = { params: Promise<{ weddingId: string }> };
 
@@ -45,6 +46,7 @@ export const GET = route(async (_request: Request, { params }: Params) => {
 export const POST = route(async (request: Request, { params }: Params) => {
   const { weddingId } = await params;
   const context = await requireWorkspace(weddingId, "GUESTS", "EDIT");
+  await requireCapacity(weddingId, "guests", "guests");
   const input = await parseBody(request, createGuestSchema);
 
   if (input.householdId) {

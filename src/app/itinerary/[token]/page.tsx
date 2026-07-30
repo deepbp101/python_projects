@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { RsvpForm } from "@/components/rsvp-form";
 import { Badge, Card, CardTitle } from "@/components/ui";
 import { formatLongDate, timeZoneLabel } from "@/lib/dates";
 import { loadItineraryByToken } from "@/lib/services/celebrations";
@@ -28,7 +29,7 @@ export default async function ItineraryPage({ params }: Params) {
   const loaded = await loadItineraryByToken(token);
   if (!loaded) notFound();
 
-  const { wedding, itinerary } = loaded;
+  const { wedding, itinerary, reply } = loaded;
   const zone = timeZoneLabel(wedding.timezone);
 
   return (
@@ -181,6 +182,19 @@ export default async function ItineraryPage({ params }: Params) {
             )}
           </>
         )}
+
+        {/*
+          Shown either way. A guest who hasn't replied needs it most, and one who
+          has may need to change their answer — the same form does both.
+        */}
+        <RsvpForm
+          token={token}
+          guestName={itinerary.guestName}
+          deadline={wedding.rsvpDeadline?.toISOString() ?? null}
+          note={wedding.rsvpNote}
+          meals={wedding.mealOptions}
+          current={reply}
+        />
 
         {wedding.siteSlug && itinerary.showSchedule && (
           <p className="text-center text-sm">

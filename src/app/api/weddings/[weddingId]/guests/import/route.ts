@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { findOrCreateHousehold, findOrCreateTag } from "@/lib/services/guests";
 import { importGuestsSchema } from "@/lib/validation";
+import { requireCapacity } from "@/lib/services/plan";
 
 type Params = { params: Promise<{ weddingId: string }> };
 
@@ -17,6 +18,10 @@ export const POST = route(async (request: Request, { params }: Params) => {
   const { weddingId } = await params;
   const context = await requireWorkspace(weddingId, "GUESTS", "EDIT");
   const { guests } = await parseBody(request, importGuestsSchema);
+
+  // The whole batch is checked at once: a paste of 30 into a plan with room for
+  // 10 is refused rather than importing 10 and dropping the rest silently.
+  await requireCapacity(weddingId, "guests", "guests", guests.length);
 
   const householdIds = new Map<string, string>();
   const tagIds = new Map<string, string>();
