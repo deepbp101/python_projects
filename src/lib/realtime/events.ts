@@ -17,7 +17,10 @@ export type WorkspaceResource =
   | "collaborators"
   | "seating"
   | "site"
-  | "moodboard";
+  | "moodboard"
+  | "vendors"
+  /** A message arrived — from a collaborator, or from a vendor with no account. */
+  | "messages";
 
 export type WorkspaceChangedPayload = {
   weddingId: string;

@@ -9,17 +9,26 @@
  */
 import { rm } from "node:fs/promises";
 import "dotenv/config";
-import { makePng } from "./seed-images";
+import { makePdf, makePng } from "./seed-images";
 import { hashPassword } from "@/lib/auth/password";
+import { hashToken } from "@/lib/auth/tokens";
 import { addDays, startOfUtcDay, subDays } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { siteSlugFrom } from "@/lib/domain/site";
 import { generateTimeline } from "@/lib/domain/timeline";
+import { vendorSlugFrom } from "@/lib/domain/vendors";
 import { defaultPermissionsForRole } from "@/lib/permissions";
 import { slugify } from "@/lib/services/wedding";
 import { buildStorageKey, getStorage } from "@/lib/storage";
 
 const DEMO_PASSWORD = "wedding-demo-2026";
+
+/**
+ * Fixed share token for the demo florist, so the seed can print a working
+ * `/vendor/...` link. Real tokens are random and only their hash is stored, which
+ * means a generated one could never be printed after the fact.
+ */
+const FERN_TOKEN = "demo-florist-thread-token";
 
 const today = startOfUtcDay(new Date());
 const weddingDate = addDays(today, 243); // roughly eight months out
@@ -28,8 +37,11 @@ const money = (dollars: number) => Math.round(dollars * 100);
 
 async function main() {
   console.log("Clearing existing data…");
-  // Order matters only for users; everything else cascades from Wedding.
+  // Most rows cascade from Wedding. Vendor does not — a directory listing is
+  // shared across weddings and outlives any one of them — so it needs clearing
+  // explicitly or a reseed collides on the slug.
   await prisma.wedding.deleteMany({});
+  await prisma.vendor.deleteMany({});
   await prisma.user.deleteMany({});
   // Stored files are outside the database, so they need clearing separately.
   await rm(process.env.UPLOAD_DIR ?? ".uploads", { recursive: true, force: true });
@@ -308,11 +320,14 @@ async function main() {
     },
   ];
 
+  /** Line items by name, so vendors can be linked to what pays for them. */
+  const budgetItems = new Map<string, string>();
+
   for (const spec of itemSpec) {
     const categoryId = categories.get(spec.category);
     if (!categoryId) throw new Error(`Unknown category: ${spec.category}`);
 
-    await prisma.budgetItem.create({
+    const item = await prisma.budgetItem.create({
       data: {
         weddingId: wedding.id,
         categoryId,
@@ -329,6 +344,8 @@ async function main() {
         },
       },
     });
+
+    budgetItems.set(spec.name, item.id);
   }
 
   // --- guests --------------------------------------------------------------
@@ -644,26 +661,386 @@ async function main() {
     });
   }
 
-  const [taskCount, guestCount, seatedCount, moodCount] = await Promise.all([
-    prisma.task.count({ where: { weddingId: wedding.id } }),
-    prisma.guest.count({ where: { weddingId: wedding.id } }),
-    prisma.seatAssignment.count({
-      where: { table: { weddingId: wedding.id } },
+  // --- vendors, reviews & threads -------------------------------------------
+  console.log("Adding vendors…");
+
+  /**
+   * A few other couples exist only to own reviews. A directory rating that
+   * aggregates one wedding is not a rating, so the demo needs strangers in it.
+   */
+  const neighbours = await Promise.all(
+    [
+      { email: "priya@example.com", name: "Priya Raman", title: "Priya & Tom" },
+      { email: "devon@example.com", name: "Devon Clarke", title: "Devon & Wes" },
+      { email: "mira@example.com", name: "Mira Halvorsen", title: "Mira & Jo" },
+    ].map(async (spec, index) => {
+      const user = await prisma.user.create({
+        data: { email: spec.email, name: spec.name, passwordHash },
+      });
+      const theirWedding = await prisma.wedding.create({
+        data: {
+          slug: slugify(spec.title),
+          title: spec.title,
+          weddingDate: subDays(today, 120 + index * 90),
+          collaborators: {
+            create: {
+              userId: user.id,
+              email: user.email,
+              name: user.name,
+              role: "OWNER",
+              status: "ACTIVE",
+              joinedAt: new Date(),
+            },
+          },
+        },
+      });
+      return { user, wedding: theirWedding };
     }),
-    prisma.moodBoardItem.count({ where: { boardId: board.id } }),
+  );
+
+  const vendorSpec = [
+    {
+      key: "mill",
+      name: "The Old Mill",
+      category: "VENUE" as const,
+      city: "Hudson Valley",
+      region: "NY",
+      priceTier: 3,
+      website: "https://example.com/the-old-mill",
+      description:
+        "Restored 1860s mill on the river. Ceremony lawn, barn reception for up to 160.",
+    },
+    {
+      key: "sage",
+      name: "Sage & Salt Catering",
+      category: "CATERING" as const,
+      city: "Beacon",
+      region: "NY",
+      priceTier: 3,
+      description: "Seasonal menus, family style. Runs its own bar service.",
+    },
+    {
+      key: "lena",
+      name: "Lena Prescott Photo",
+      category: "PHOTOGRAPHY" as const,
+      city: "Brooklyn",
+      region: "NY",
+      priceTier: 3,
+      description: "Documentary coverage, mostly natural light. Two shooters.",
+    },
+    {
+      key: "fern",
+      name: "Fern & Thistle",
+      category: "FLORIST" as const,
+      city: "Kingston",
+      region: "NY",
+      priceTier: 2,
+      description: "Loose, garden-style arrangements grown locally where possible.",
+    },
+    {
+      key: "rivertones",
+      name: "The Rivertones",
+      category: "MUSIC" as const,
+      city: "Poughkeepsie",
+      region: "NY",
+      priceTier: 2,
+      description: "Six-piece soul and Motown covers band. Four-hour sets.",
+    },
+    {
+      key: "hudson",
+      name: "Hudson Event Rentals",
+      category: "RENTALS" as const,
+      city: "Hudson Valley",
+      region: "NY",
+      priceTier: 2,
+      description: "Tables, chairs, linens and glassware. Delivery and collection.",
+    },
+    // Not on our shortlist — the directory has to have something left to find.
+    {
+      key: "bloom",
+      name: "Bloom Bakery",
+      category: "CAKE" as const,
+      city: "Beacon",
+      region: "NY",
+      priceTier: 1,
+      description: "Naked cakes and seasonal fruit. Tastings on Saturdays.",
+    },
+    {
+      key: "wildflower",
+      name: "Wildflower Studio",
+      category: "FLORIST" as const,
+      city: "Brooklyn",
+      region: "NY",
+      priceTier: 3,
+      description: "Sculptural, architectural installations. Books a year out.",
+    },
+    {
+      key: "quarry",
+      name: "The Quarry House",
+      category: "VENUE" as const,
+      city: "New Paltz",
+      region: "NY",
+      priceTier: 4,
+      description: "Glass pavilion above a flooded quarry. 90 seated.",
+    },
+  ];
+
+  const vendorIds = new Map<string, string>();
+  for (const spec of vendorSpec) {
+    const { key, ...fields } = spec;
+    const created = await prisma.vendor.create({
+      data: {
+        ...fields,
+        slug: vendorSlugFrom(fields.name, fields.city),
+        country: "US",
+        createdById: sam.id,
+      },
+    });
+    vendorIds.set(key, created.id);
+  }
+
+  const reviewSpec = [
+    { vendor: "mill", by: 0, rating: 5, title: "Worth the drive", body: "The barn at golden hour did most of the work for us." },
+    { vendor: "mill", by: 1, rating: 4, title: "Beautiful, tight on parking", body: "Plan the shuttle early. Everything else was faultless." },
+    { vendor: "sage", by: 0, rating: 5, title: "Guests still talk about it", body: "Family style was the right call. Handled two allergies without fuss." },
+    { vendor: "sage", by: 2, rating: 4, title: "Lovely food, slow to reply", body: "Worth the chasing, but expect to chase." },
+    { vendor: "lena", by: 1, rating: 5, title: "Barely noticed her there", body: "Which is exactly what we wanted. Gallery back in three weeks." },
+    { vendor: "fern", by: 2, rating: 4, title: "Gorgeous, went slightly over", body: "Ask for the itemised quote up front." },
+    { vendor: "wildflower", by: 0, rating: 5, title: "Extraordinary installation", body: "Expensive and worth it. Book early." },
+    { vendor: "quarry", by: 1, rating: 3, title: "Stunning but inflexible", body: "Hard stop at 10pm, no exceptions, and the bar list is fixed." },
+    { vendor: "bloom", by: 2, rating: 5, title: "The lemon one", body: "Order the lemon one." },
+    { vendor: "rivertones", by: 0, rating: 4, title: "Filled the floor", body: "Ignore the setlist they send and just tell them what you like." },
+  ];
+
+  for (const spec of reviewSpec) {
+    const neighbour = neighbours[spec.by];
+    await prisma.vendorReview.create({
+      data: {
+        vendorId: vendorIds.get(spec.vendor)!,
+        weddingId: neighbour.wedding.id,
+        authorId: neighbour.user.id,
+        rating: spec.rating,
+        title: spec.title,
+        body: spec.body,
+      },
+    });
+  }
+
+  const shortlistSpec = [
+    { vendor: "mill", status: "BOOKED" as const, contactName: "Dana Whitlock", contactEmail: "events@example.com", budgetItem: "Venue hire", notes: "Final headcount due 30 days out. Dana is the only one who answers the phone." },
+    { vendor: "sage", status: "BOOKED" as const, contactName: "Marco Estevez", contactEmail: "marco@example.com", budgetItem: "Dinner service", notes: "Tasting done. Two gluten-free, one shellfish allergy to confirm." },
+    { vendor: "lena", status: "BOOKED" as const, contactName: "Lena Prescott", contactEmail: "lena@example.com", budgetItem: "Photography package", notes: "Wants a shot list two weeks out." },
+    { vendor: "fern", status: "QUOTED" as const, contactName: "Nadia Roux", contactEmail: "nadia@example.com", budgetItem: "Ceremony & reception florals", notes: "Over our line already. Ask whether the arch can be scaled back." },
+    { vendor: "rivertones", status: "BOOKED" as const, contactName: "Errol Vance", contactEmail: "errol@example.com", budgetItem: "Band (4 hours)", notes: "Needs a 3m x 4m stage area and two power sockets." },
+    { vendor: "hudson", status: "CONTACTED" as const, contactName: null, contactEmail: "hire@example.com", budgetItem: "Tables, chairs & linens", notes: "Deposit is three days overdue — chase this." },
+    { vendor: "quarry", status: "DECLINED" as const, contactName: null, contactEmail: null, budgetItem: null, notes: "Beautiful, but the 10pm curfew killed it." },
+  ];
+
+  const shortlist = new Map<string, string>();
+  for (const spec of shortlistSpec) {
+    const created = await prisma.weddingVendor.create({
+      data: {
+        weddingId: wedding.id,
+        vendorId: vendorIds.get(spec.vendor)!,
+        status: spec.status,
+        contactName: spec.contactName,
+        contactEmail: spec.contactEmail,
+        notes: spec.notes,
+        budgetItemId: spec.budgetItem
+          ? (budgetItems.get(spec.budgetItem) ?? null)
+          : null,
+        addedById: sam.id,
+      },
+    });
+    shortlist.set(spec.vendor, created.id);
+  }
+
+  // Our own review of a vendor we have worked with, so the edit form has content.
+  await prisma.vendorReview.create({
+    data: {
+      vendorId: vendorIds.get("lena")!,
+      weddingId: wedding.id,
+      authorId: alex.id,
+      rating: 5,
+      title: "Immediately at ease",
+      body: "Engagement shoot was fun rather than awkward, which we did not expect.",
+    },
+  });
+
+  console.log("Opening vendor threads…");
+
+  /** The florist thread: mid-negotiation, with a quote attached and both sharing. */
+  const fernThreadId = (
+    await prisma.vendorThread.create({
+      data: {
+        weddingVendorId: shortlist.get("fern")!,
+        subject: "Florals — revised quote",
+        accessTokenHash: hashToken(FERN_TOKEN),
+        accessGrantedAt: subDays(today, 9),
+      },
+      select: { id: true },
+    })
+  ).id;
+
+  const quoteBytes = makePdf("Fern & Thistle — revised quote", [
+    "Sam & Alex — ceremony & reception florals",
+    "",
+    "Ceremony arch, reduced scale",
+    "Six long-table runners, garden style",
+    "Twelve bud vases",
+    "Two bridesmaid posies, one buttonhole set",
+    "",
+    "Delivery, install and next-day collection included.",
+    "Valid for 14 days. Amounts as discussed by phone.",
   ]);
+
+  const quoteKey = buildStorageKey(wedding.id, "application/pdf");
+  await getStorage().put(quoteKey, quoteBytes, "application/pdf");
+  const quoteUpload = await prisma.upload.create({
+    data: {
+      weddingId: wedding.id,
+      storageKey: quoteKey,
+      originalName: "fern-and-thistle-revised-quote.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: quoteBytes.byteLength,
+      createdById: null,
+    },
+  });
+
+  const fernMessages = [
+    {
+      authorId: sam.id,
+      authorName: null,
+      body: "Hi Nadia — we loved the proposal but it lands over what we set aside for flowers. Is there a version where the arch is scaled back?",
+      daysAgo: 9,
+      uploadId: null as string | null,
+    },
+    {
+      authorId: null,
+      authorName: "Nadia Roux",
+      body: "Of course. Half-arch on the left side only still reads well in photos and takes a good chunk out. Revised quote attached.",
+      daysAgo: 8,
+      uploadId: quoteUpload.id,
+    },
+    {
+      authorId: alex.id,
+      authorName: null,
+      body: "That works for us. Sharing our mood board so you can see the palette we keep coming back to.",
+      daysAgo: 7,
+      uploadId: null,
+    },
+    {
+      authorId: null,
+      authorName: "Nadia Roux",
+      body: "Perfect — the blush and cream is very doable in May. One question: what time can we get into the barn to install?",
+      daysAgo: 2,
+      uploadId: null,
+    },
+  ];
+
+  let fernLast = today;
+  for (const spec of fernMessages) {
+    const createdAt = subDays(today, spec.daysAgo);
+    await prisma.message.create({
+      data: {
+        threadId: fernThreadId,
+        authorId: spec.authorId,
+        authorName: spec.authorName,
+        body: spec.body,
+        createdAt,
+        ...(spec.uploadId
+          ? { attachments: { create: { uploadId: spec.uploadId } } }
+          : {}),
+      },
+    });
+    fernLast = createdAt;
+  }
+
+  await prisma.threadShare.create({
+    data: {
+      threadId: fernThreadId,
+      moodBoardId: board.id,
+      sharedById: alex.id,
+      createdAt: subDays(today, 7),
+    },
+  });
+
+  await prisma.threadShare.create({
+    data: {
+      threadId: fernThreadId,
+      budgetItemId: budgetItems.get("Ceremony & reception florals")!,
+      sharedById: alex.id,
+      createdAt: subDays(today, 7),
+    },
+  });
+
+  await prisma.vendorThread.update({
+    where: { id: fernThreadId },
+    data: {
+      lastMessageAt: fernLast,
+      // Nadia's last message is deliberately left unread, so the workspace shows
+      // an unread badge on first load.
+      coupleReadAt: subDays(today, 6),
+      vendorReadAt: subDays(today, 2),
+    },
+  });
+
+  // A settled thread, with nothing outstanding and no vendor link handed out.
+  const millThreadId = (
+    await prisma.vendorThread.create({
+      data: {
+        weddingVendorId: shortlist.get("mill")!,
+        subject: "Timings & access",
+      },
+      select: { id: true },
+    })
+  ).id;
+
+  await prisma.message.create({
+    data: {
+      threadId: millThreadId,
+      authorId: sam.id,
+      body: "Confirming we can start setting up from 10am on the day, and the shuttle can turn in the top yard.",
+      createdAt: subDays(today, 21),
+    },
+  });
+
+  await prisma.vendorThread.update({
+    where: { id: millThreadId },
+    data: {
+      lastMessageAt: subDays(today, 21),
+      coupleReadAt: subDays(today, 21),
+    },
+  });
+
+  const [taskCount, guestCount, seatedCount, moodCount, vendorCount, messageCount] =
+    await Promise.all([
+      prisma.task.count({ where: { weddingId: wedding.id } }),
+      prisma.guest.count({ where: { weddingId: wedding.id } }),
+      prisma.seatAssignment.count({
+        where: { table: { weddingId: wedding.id } },
+      }),
+      prisma.moodBoardItem.count({ where: { boardId: board.id } }),
+      prisma.weddingVendor.count({ where: { weddingId: wedding.id } }),
+      prisma.message.count({
+        where: { thread: { weddingVendor: { weddingId: wedding.id } } },
+      }),
+    ]);
 
   console.log(`
 Seeded "${wedding.title}" — ${taskCount} tasks, ${guestCount} guests,
-${seatedCount} seated across ${tableSpec.length} tables, ${moodCount} mood board images.
+${seatedCount} seated across ${tableSpec.length} tables, ${moodCount} mood board images,
+${vendorCount} vendors and ${messageCount} messages.
 
-  Public website: /wedding/${site.slug}
+  Public website:   /wedding/${site.slug}
+  Florist's thread: /vendor/${FERN_TOKEN}
+                    (no login — this is what a vendor sees)
 
   Sign in with any of these (password: ${DEMO_PASSWORD})
     sam@example.com     owner
     alex@example.com    partner
     jamie@example.com   planner   (budget is view-only)
-    robin@example.com   family    (budget hidden)
+    robin@example.com   family    (budget and vendors hidden)
 `);
 }
 

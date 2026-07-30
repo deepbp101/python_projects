@@ -25,12 +25,17 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions       Session[]
-  collaborations Collaborator[]  @relation("CollaboratorUser")
-  invitesSent    Collaborator[]  @relation("CollaboratorInvitedBy")
-  tasksCompleted Task[]          @relation("TaskCompletedBy")
-  uploads        Upload[]        @relation("UploadCreatedBy")
-  moodItems      MoodBoardItem[] @relation("MoodItemCreatedBy")
+  sessions           Session[]
+  collaborations     Collaborator[]  @relation("CollaboratorUser")
+  invitesSent        Collaborator[]  @relation("CollaboratorInvitedBy")
+  tasksCompleted     Task[]          @relation("TaskCompletedBy")
+  uploads            Upload[]        @relation("UploadCreatedBy")
+  moodItems          MoodBoardItem[] @relation("MoodItemCreatedBy")
+  vendorsAdded       Vendor[]        @relation("VendorCreatedBy")
+  vendorsShortlisted WeddingVendor[] @relation("WeddingVendorAddedBy")
+  vendorReviews      VendorReview[]  @relation("VendorReviewAuthor")
+  messagesSent       Message[]       @relation("MessageAuthor")
+  sharesMade         ThreadShare[]   @relation("ThreadShareSharedBy")
 
   @@map("users")
 }
@@ -112,6 +117,8 @@ model Wedding {
   site             WeddingSite?
   seatingTables    SeatingTable[]
   moodBoard        MoodBoard?
+  vendors          WeddingVendor[]
+  vendorReviews    VendorReview[]
 
   @@map("weddings")
 }
@@ -249,9 +256,11 @@ model BudgetItem {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  wedding  Wedding        @relation(fields: [weddingId], references: [id], onDelete: Cascade)
-  category BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  payments Payment[]
+  wedding      Wedding         @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  category     BudgetCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  payments     Payment[]
+  vendorLinks  WeddingVendor[]
+  threadShares ThreadShare[]
 
   @@index([weddingId])
   @@index([categoryId])
@@ -430,10 +439,11 @@ model Upload {
   createdById  String?
   createdAt    DateTime @default(now())
 
-  wedding       Wedding         @relation(fields: [weddingId], references: [id], onDelete: Cascade)
-  createdBy     User?           @relation("UploadCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  wedding       Wedding            @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  createdBy     User?              @relation("UploadCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   moodBoardItem MoodBoardItem?
   siteCoverFor  WeddingSite?
+  attachedTo    MessageAttachment?
 
   @@index([weddingId])
   @@map("uploads")
@@ -452,26 +462,26 @@ enum SiteTemplate {
 /// The couple's public-facing site. Exists whether or not it is published;
 /// `publishedAt` is what makes it reachable at /wedding/[slug].
 model WeddingSite {
-  id           String       @id @default(cuid())
-  weddingId    String       @unique
+  id            String       @id @default(cuid())
+  weddingId     String       @unique
   /// Public URL segment, separate from the workspace slug so the couple can
   /// choose something shareable without changing internal links.
-  slug         String       @unique
-  template     SiteTemplate @default(CLASSIC)
-  headline     String?
-  intro        String?
-  storyTitle   String       @default("Our story")
-  story        String?
-  travelTitle  String       @default("Travel & stays")
-  travel       String?
-  registryNote String?
+  slug          String       @unique
+  template      SiteTemplate @default(CLASSIC)
+  headline      String?
+  intro         String?
+  storyTitle    String       @default("Our story")
+  story         String?
+  travelTitle   String       @default("Travel & stays")
+  travel        String?
+  registryNote  String?
   /// Shown to guests so they know when to reply by.
-  rsvpDeadline DateTime?
-  rsvpNote     String?
-  publishedAt  DateTime?
-  coverUploadId String?     @unique
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  rsvpDeadline  DateTime?
+  rsvpNote      String?
+  publishedAt   DateTime?
+  coverUploadId String?      @unique
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   wedding    Wedding        @relation(fields: [weddingId], references: [id], onDelete: Cascade)
   coverImage Upload?        @relation(fields: [coverUploadId], references: [id], onDelete: SetNull)
@@ -484,7 +494,7 @@ model WeddingSite {
 /// Ceremony, reception, welcome drinks, farewell brunch — anything with a time
 /// and a place that guests need to know about.
 model SiteEvent {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   siteId      String
   name        String
   startsAt    DateTime
@@ -494,7 +504,7 @@ model SiteEvent {
   description String?
   dressCode   String?
   mapUrl      String?
-  sortOrder   Int      @default(0)
+  sortOrder   Int       @default(0)
 
   site WeddingSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
@@ -503,12 +513,12 @@ model SiteEvent {
 }
 
 model RegistryLink {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   siteId    String
   label     String
   url       String
   note      String?
-  sortOrder Int      @default(0)
+  sortOrder Int     @default(0)
 
   site WeddingSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
@@ -593,8 +603,9 @@ model MoodBoard {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  wedding Wedding         @relation(fields: [weddingId], references: [id], onDelete: Cascade)
-  items   MoodBoardItem[]
+  wedding      Wedding         @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  items        MoodBoardItem[]
+  threadShares ThreadShare[]
 
   @@map("mood_boards")
 }
@@ -619,4 +630,212 @@ model MoodBoardItem {
 
   @@index([boardId, category])
   @@map("mood_board_items")
+}
+
+// ---------------------------------------------------------------------------
+// Vendors & messaging (Phase 3)
+// ---------------------------------------------------------------------------
+
+enum VendorCategory {
+  VENUE
+  CATERING
+  PHOTOGRAPHY
+  VIDEOGRAPHY
+  FLORIST
+  MUSIC
+  CAKE
+  ATTIRE
+  BEAUTY
+  STATIONERY
+  RENTALS
+  TRANSPORT
+  OFFICIANT
+  PLANNING
+  OTHER
+}
+
+/// A business, shared across every wedding in the app.
+///
+/// Ratings only mean anything if couples review the *same* row, so this table is
+/// readable by any signed-in user and deliberately holds nothing private. What
+/// one couple thinks, pays or decides about a vendor lives on WeddingVendor.
+model Vendor {
+  id          String         @id @default(cuid())
+  slug        String         @unique
+  name        String
+  category    VendorCategory @default(OTHER)
+  city        String?
+  region      String?
+  country     String?
+  website     String?
+  email       String?
+  phone       String?
+  /// 1-4, shown as $ to $$$$. A rough band, not a quote.
+  priceTier   Int?
+  description String?
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  createdBy  User?           @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  reviews    VendorReview[]
+  shortlists WeddingVendor[]
+
+  @@index([category])
+  @@index([city])
+  @@map("vendors")
+}
+
+enum VendorStatus {
+  CONSIDERING
+  CONTACTED
+  QUOTED
+  BOOKED
+  DECLINED
+}
+
+/// One wedding's dealings with one vendor: the couple's own status, private
+/// notes, the contact they deal with, and which budget line pays for it.
+model WeddingVendor {
+  id           String       @id @default(cuid())
+  weddingId    String
+  vendorId     String
+  status       VendorStatus @default(CONSIDERING)
+  contactName  String?
+  contactEmail String?
+  /// Private to the workspace — never sent to the vendor.
+  notes        String?
+  budgetItemId String?
+  addedById    String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  wedding    Wedding       @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  vendor     Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  budgetItem BudgetItem?   @relation(fields: [budgetItemId], references: [id], onDelete: SetNull)
+  addedBy    User?         @relation("WeddingVendorAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  thread     VendorThread?
+
+  @@unique([weddingId, vendorId])
+  @@index([weddingId])
+  @@index([vendorId])
+  @@map("wedding_vendors")
+}
+
+/// One review per wedding per vendor, so a couple cannot stack up ratings.
+/// Aggregates are computed on read rather than denormalised onto Vendor —
+/// a cached average that drifts is worse than a join.
+model VendorReview {
+  id        String   @id @default(cuid())
+  vendorId  String
+  weddingId String
+  authorId  String?
+  /// 1-5 stars.
+  rating    Int
+  title     String?
+  body      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  author  User?   @relation("VendorReviewAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([vendorId, weddingId])
+  @@index([vendorId])
+  @@map("vendor_reviews")
+}
+
+/// The conversation with a vendor.
+///
+/// Kept separate from WeddingVendor on purpose: the vendor-facing page loads a
+/// thread, and a thread has no private notes or status on it. A florist reading
+/// their own messages cannot be shown "DECLINED — too expensive" by a careless
+/// `include`, because that column is not reachable from here.
+model VendorThread {
+  id              String    @id @default(cuid())
+  weddingVendorId String    @unique
+  subject         String?
+  /// Vendors reply without an account; the token in their link is the whole
+  /// credential, so only its hash is stored (same as sessions and invites).
+  accessTokenHash String?   @unique
+  accessGrantedAt DateTime?
+  lastMessageAt   DateTime?
+  /// Read receipts, one per side, for unread badges.
+  coupleReadAt    DateTime?
+  vendorReadAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  weddingVendor WeddingVendor @relation(fields: [weddingVendorId], references: [id], onDelete: Cascade)
+  messages      Message[]
+  shares        ThreadShare[]
+
+  @@map("vendor_threads")
+}
+
+/// A message in a vendor thread. `authorId` is null for the vendor's own
+/// replies, which arrive through a share link and have no user row behind them.
+model Message {
+  id         String   @id @default(cuid())
+  threadId   String
+  authorId   String?
+  /// Display name for a vendor reply, captured at send time.
+  authorName String?
+  body       String
+  createdAt  DateTime @default(now())
+
+  thread      VendorThread        @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author      User?               @relation("MessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  attachments MessageAttachment[]
+  shares      ThreadShare[]
+
+  @@index([threadId, createdAt])
+  @@map("messages")
+}
+
+/// Files sent in a thread — quotes and contracts as often as photos, which is
+/// why attachments accept PDFs where the mood board takes images only.
+model MessageAttachment {
+  id        String @id @default(cuid())
+  messageId String
+  uploadId  String @unique
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  upload  Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+/// Something from the workspace made visible inside one vendor thread.
+///
+/// Exactly one of `moodBoardId` / `budgetItemId` is set. Real foreign keys are
+/// used rather than a polymorphic id, so deleting a budget line takes its shares
+/// with it instead of leaving the vendor pointing at nothing.
+///
+/// Revoking sets `revokedAt` rather than deleting, so the message announcing the
+/// share still reads correctly in the history.
+model ThreadShare {
+  id           String    @id @default(cuid())
+  threadId     String
+  moodBoardId  String?
+  budgetItemId String?
+  messageId    String?
+  sharedById   String?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  thread     VendorThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  moodBoard  MoodBoard?   @relation(fields: [moodBoardId], references: [id], onDelete: Cascade)
+  budgetItem BudgetItem?  @relation(fields: [budgetItemId], references: [id], onDelete: Cascade)
+  message    Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  sharedBy   User?        @relation("ThreadShareSharedBy", fields: [sharedById], references: [id], onDelete: SetNull)
+
+  // Postgres treats nulls as distinct, so these stop the same resource being
+  // shared twice into one thread without blocking rows for the other kind.
+  @@unique([threadId, moodBoardId])
+  @@unique([threadId, budgetItemId])
+  @@index([threadId])
+  @@map("thread_shares")
 }

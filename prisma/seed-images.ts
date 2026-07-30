@@ -79,3 +79,54 @@ export function makePng(
     chunk("IEND", new Uint8Array(0)),
   ]);
 }
+
+/**
+ * A minimal but genuinely valid one-page PDF, for the demo vendor quote.
+ *
+ * Same reasoning as the PNG encoder above: attachments are identified by their
+ * magic bytes, so a text file named `.pdf` would be rejected by the upload path
+ * the demo is meant to exercise. Offsets in the cross-reference table are
+ * computed rather than hard-coded, so the file actually opens in a viewer.
+ */
+export function makePdf(title: string, lines: string[]): Uint8Array {
+  const escape = (text: string) =>
+    text.replace(/([\\()])/g, "\\$1");
+
+  const content = [
+    "BT",
+    "/F1 16 Tf",
+    `1 0 0 1 60 780 Tm (${escape(title)}) Tj`,
+    "/F1 11 Tf",
+    ...lines.map((line, index) =>
+      `1 0 0 1 60 ${750 - index * 18} Tm (${escape(line)}) Tj`,
+    ),
+    "ET",
+  ].join("\n");
+
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] " +
+      "/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}\nendstream`,
+  ];
+
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [];
+
+  for (const [index, body] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf, "latin1"));
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  }
+
+  const startXref = Buffer.byteLength(pdf, "latin1");
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
+  pdf += `startxref\n${startXref}\n%%EOF\n`;
+
+  return new Uint8Array(Buffer.from(pdf, "latin1"));
+}

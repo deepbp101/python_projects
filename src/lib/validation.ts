@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_MESSAGE_LENGTH } from "@/lib/domain/messaging";
 
 /**
  * Request schemas. Every route handler parses its body through one of these,
@@ -418,4 +419,132 @@ export const updateMoodBoardSchema = z.object({
 
 export const shareMoodBoardSchema = z.object({
   shared: z.boolean(),
+});
+
+// ---------------------------------------------------------------------------
+// Vendors & messaging (Phase 3)
+// ---------------------------------------------------------------------------
+
+export const vendorCategory = z.enum([
+  "VENUE",
+  "CATERING",
+  "PHOTOGRAPHY",
+  "VIDEOGRAPHY",
+  "FLORIST",
+  "MUSIC",
+  "CAKE",
+  "ATTIRE",
+  "BEAUTY",
+  "STATIONERY",
+  "RENTALS",
+  "TRANSPORT",
+  "OFFICIANT",
+  "PLANNING",
+  "OTHER",
+]);
+
+export const vendorStatus = z.enum([
+  "CONSIDERING",
+  "CONTACTED",
+  "QUOTED",
+  "BOOKED",
+  "DECLINED",
+]);
+
+/** A directory listing. Shared across weddings, so it carries nothing private. */
+export const createVendorSchema = z.object({
+  name: trimmed(160),
+  category: vendorCategory.default("OTHER"),
+  city: optionalText(100),
+  region: optionalText(100),
+  country: optionalText(100),
+  website: z.url().max(300).nullable().optional(),
+  email: z.email().max(255).nullable().optional(),
+  phone: optionalText(40),
+  /** 1-4, shown as $ to $$$$. */
+  priceTier: z.number().int().min(1).max(4).nullable().optional(),
+  description: optionalText(2000),
+});
+
+export const updateVendorSchema = partialForUpdate(createVendorSchema);
+
+/**
+ * Adds a vendor to this wedding's shortlist, either by picking an existing
+ * directory entry (`vendorId`) or by describing a new one (`vendor`).
+ */
+export const addWeddingVendorSchema = z
+  .object({
+    vendorId: id.optional(),
+    vendor: createVendorSchema.optional(),
+    status: vendorStatus.default("CONSIDERING"),
+    contactName: optionalText(120),
+    contactEmail: z.email().max(255).nullable().optional(),
+    notes: optionalText(2000),
+    budgetItemId: id.nullable().optional(),
+  })
+  .refine((value) => Boolean(value.vendorId) !== Boolean(value.vendor), {
+    message: "Pick a vendor from the directory or describe a new one.",
+    path: ["vendorId"],
+  });
+
+export const updateWeddingVendorSchema = partialForUpdate(
+  z.object({
+    status: vendorStatus.default("CONSIDERING"),
+    contactName: optionalText(120),
+    contactEmail: z.email().max(255).nullable().optional(),
+    notes: optionalText(2000),
+    budgetItemId: id.nullable().optional(),
+    subject: optionalText(160),
+  }),
+);
+
+export const vendorReviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  title: optionalText(120),
+  body: optionalText(2000),
+});
+
+/** Query string for the directory. Numbers arrive as text, hence the coercion. */
+export const directoryQuerySchema = z.object({
+  q: z.string().trim().max(120).optional(),
+  category: vendorCategory.optional(),
+  city: z.string().trim().max(100).optional(),
+  minRating: z.coerce.number().min(0).max(5).default(0),
+  sort: z.enum(["RATING", "NAME", "REVIEWS"]).default("RATING"),
+});
+
+/** Turns the vendor's link on or off. Enabling always mints a fresh token. */
+export const threadAccessSchema = z.object({
+  granted: z.boolean(),
+});
+
+export const sendMessageSchema = z.object({
+  body: z.string().trim().min(1).max(MAX_MESSAGE_LENGTH),
+});
+
+/** The vendor's side of the conversation: no account, so they say who they are. */
+export const vendorReplySchema = z.object({
+  body: z.string().trim().min(1).max(MAX_MESSAGE_LENGTH),
+  authorName: z.string().trim().max(120).optional(),
+});
+
+/**
+ * Shares one thing into a thread. Exactly one of the two, matching the schema's
+ * one-of-two foreign keys.
+ */
+export const shareIntoThreadSchema = z
+  .object({
+    moodBoard: z.boolean().optional(),
+    budgetItemId: id.optional(),
+  })
+  .refine(
+    (value) => Boolean(value.moodBoard) !== Boolean(value.budgetItemId),
+    {
+      message: "Share either the mood board or one budget line.",
+      path: ["budgetItemId"],
+    },
+  );
+
+export const revokeShareSchema = z.object({
+  shareId: id,
 });

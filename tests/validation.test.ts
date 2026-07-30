@@ -10,6 +10,10 @@ import {
   updatePaymentSchema,
   updateSeatingTableSchema,
   updateSiteEventSchema,
+  updateVendorSchema,
+  updateWeddingVendorSchema,
+  shareIntoThreadSchema,
+  addWeddingVendorSchema,
 } from "@/lib/validation";
 
 /**
@@ -72,6 +76,18 @@ describe("update schemas leave omitted fields alone", () => {
     expect(parsed).not.toHaveProperty("sortOrder");
   });
 
+  it("does not recategorise a vendor listing when its phone number changes", () => {
+    const parsed = updateVendorSchema.parse({ phone: "+1 555 0100" });
+    expect(parsed).not.toHaveProperty("category");
+    expect(parsed).not.toHaveProperty("name");
+  });
+
+  it("does not reset a vendor's status when a note is added", () => {
+    const parsed = updateWeddingVendorSchema.parse({ notes: "Waiting on them." });
+    expect(parsed).not.toHaveProperty("status");
+    expect(parsed).not.toHaveProperty("budgetItemId");
+  });
+
   it("still applies the values that were sent", () => {
     expect(updateSeatingTableSchema.parse({ capacity: 10 })).toEqual({
       capacity: 10,
@@ -101,6 +117,39 @@ describe("create schemas still apply defaults", () => {
     expect(
       createBudgetCategorySchema.parse({ name: "Flowers" }),
     ).toMatchObject({ plannedAmount: 0, alertThresholdPct: 90 });
+  });
+});
+
+describe("one-of-two request schemas", () => {
+  it("shares either the mood board or a budget line, never both or neither", () => {
+    expect(shareIntoThreadSchema.parse({ moodBoard: true })).toMatchObject({
+      moodBoard: true,
+    });
+    expect(
+      shareIntoThreadSchema.parse({ budgetItemId: "abc123" }),
+    ).toMatchObject({ budgetItemId: "abc123" });
+
+    expect(() => shareIntoThreadSchema.parse({})).toThrow();
+    expect(() =>
+      shareIntoThreadSchema.parse({ moodBoard: true, budgetItemId: "abc123" }),
+    ).toThrow();
+  });
+
+  it("adds a vendor by directory id or by description, not both", () => {
+    expect(
+      addWeddingVendorSchema.parse({ vendorId: "abc123" }),
+    ).toMatchObject({ vendorId: "abc123" });
+    expect(
+      addWeddingVendorSchema.parse({ vendor: { name: "Wildflower Studio" } }),
+    ).toMatchObject({ vendor: { name: "Wildflower Studio", category: "OTHER" } });
+
+    expect(() => addWeddingVendorSchema.parse({})).toThrow();
+    expect(() =>
+      addWeddingVendorSchema.parse({
+        vendorId: "abc123",
+        vendor: { name: "Wildflower Studio" },
+      }),
+    ).toThrow();
   });
 });
 

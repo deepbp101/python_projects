@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { LocalDiskStorage } from "@/lib/storage/local";
-import type { ImageFormat } from "@/lib/storage/images";
-import { extensionFor } from "@/lib/storage/images";
+import type { StoredFormat } from "@/lib/storage/files";
+import { extensionForStored } from "@/lib/storage/files";
 
 /**
  * Storage driver contract.
@@ -20,9 +20,9 @@ export interface StorageDriver {
 
 export function buildStorageKey(
   weddingId: string,
-  format: ImageFormat,
+  format: StoredFormat,
 ): string {
-  return `weddings/${weddingId}/${randomBytes(16).toString("hex")}.${extensionFor(format)}`;
+  return `weddings/${weddingId}/${randomBytes(16).toString("hex")}.${extensionForStored(format)}`;
 }
 
 let cached: StorageDriver | undefined;

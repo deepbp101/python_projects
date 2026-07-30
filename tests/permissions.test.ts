@@ -4,6 +4,7 @@ import {
   canManageWorkspace,
   canView,
   defaultPermissionsForRole,
+  permissionsAfterUpdate,
   resolveAccess,
   resolveAllAccess,
   WORKSPACE_SECTIONS,
@@ -103,5 +104,38 @@ describe("resolveAllAccess", () => {
     expect(Object.keys(access).sort()).toEqual([...WORKSPACE_SECTIONS].sort());
     expect(access.BUDGET).toBe("EDIT");
     expect(access.SEATING).toBe("EDIT");
+  });
+});
+
+describe("permissionsAfterUpdate", () => {
+  it("resets overrides to the new role's defaults on a demotion", () => {
+    const rows = permissionsAfterUpdate("PLANNER", "FAMILY", undefined);
+
+    expect(rows).not.toBeNull();
+    // A planner demoted to family must not keep planner-era access.
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { section: "VENDORS", access: "NONE" },
+        { section: "BUDGET", access: "NONE" },
+        { section: "TASKS", access: "VIEW" },
+      ]),
+    );
+  });
+
+  it("covers every section, so no stale row can survive the rewrite", () => {
+    const rows = permissionsAfterUpdate("FAMILY", "PLANNER", undefined) ?? [];
+    expect(rows.map((row) => row.section).sort()).toEqual(
+      [...WORKSPACE_SECTIONS].sort(),
+    );
+  });
+
+  it("leaves stored rows alone when the role is unchanged", () => {
+    expect(permissionsAfterUpdate("PLANNER", "PLANNER", undefined)).toBeNull();
+    expect(permissionsAfterUpdate("PLANNER", undefined, undefined)).toBeNull();
+  });
+
+  it("prefers explicit permissions over the role defaults", () => {
+    const explicit = [{ section: "BUDGET" as const, access: "EDIT" as const }];
+    expect(permissionsAfterUpdate("FAMILY", "PLANNER", explicit)).toBe(explicit);
   });
 });

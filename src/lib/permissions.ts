@@ -145,3 +145,27 @@ export function canEdit(
 export function canManageWorkspace(role: CollaboratorRole): boolean {
   return role === "OWNER" || role === "PARTNER";
 }
+
+/**
+ * What a collaborator's per-section overrides should become after an edit.
+ *
+ * Returning `null` means "leave the stored rows alone". The case that matters is
+ * a role *change* with no explicit permissions: overrides are stored rows, so a
+ * planner demoted to family would otherwise keep their planner-era EDIT on
+ * vendors and VIEW on the budget. Demotion is exactly when that must not happen,
+ * so a role change without explicit permissions resets to the new role's
+ * defaults.
+ */
+export function permissionsAfterUpdate(
+  currentRole: CollaboratorRole,
+  nextRole: CollaboratorRole | undefined,
+  explicit: PermissionRow[] | undefined,
+): PermissionRow[] | null {
+  if (explicit) return explicit;
+  if (!nextRole || nextRole === currentRole) return null;
+
+  return WORKSPACE_SECTIONS.map((section) => ({
+    section,
+    access: defaultPermissionsForRole(nextRole)[section],
+  }));
+}

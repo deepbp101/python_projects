@@ -7,7 +7,7 @@ import {
   route,
 } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { resolveAllAccess } from "@/lib/permissions";
+import { permissionsAfterUpdate, resolveAllAccess } from "@/lib/permissions";
 import { broadcastChange } from "@/lib/realtime/emit";
 import { updateCollaboratorSchema } from "@/lib/validation";
 
@@ -26,12 +26,20 @@ export const PATCH = route(async (request: Request, { params }: Params) => {
     throw badRequest("The owner's access cannot be changed.");
   }
 
+  // A role change rewrites the overrides unless the caller supplied their own,
+  // so demoting someone cannot leave their old access behind.
+  const permissions = permissionsAfterUpdate(
+    collaborator.role,
+    input.role,
+    input.permissions,
+  );
+
   const updated = await prisma.collaborator.update({
     where: { id: collaboratorId },
     data: {
       ...(input.role ? { role: input.role } : {}),
-      ...(input.permissions
-        ? { permissions: { deleteMany: {}, create: input.permissions } }
+      ...(permissions
+        ? { permissions: { deleteMany: {}, create: permissions } }
         : {}),
     },
     include: { permissions: true },
