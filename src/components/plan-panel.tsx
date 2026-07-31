@@ -85,10 +85,6 @@ export function PlanPanel({
   counts: Record<CountableLimit, number>;
 }) {
   const definition = planDefinition(plan);
-  const monthLabel = new Date(`${usage.period}-01T00:00:00Z`).toLocaleDateString(
-    "en-US",
-    { month: "long", year: "numeric", timeZone: "UTC" },
-  );
 
   return (
     <Card>
@@ -104,7 +100,7 @@ export function PlanPanel({
 
       <section className="mt-5">
         <h3 className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Writing assistant · {monthLabel}
+          Writing assistant
         </h3>
         <p className="mt-1.5 text-sm text-ink">
           <span className="tabular">{usage.used.toLocaleString("en-US")}</span>{" "}
@@ -123,7 +119,8 @@ export function PlanPanel({
         </p>
         <Meter used={usage.used} of={usage.allowance} />
         <p className="mt-1.5 text-xs text-ink-faint">
-          Resets on the 1st. Each draft is capped at{" "}
+          This is the whole allowance for your wedding, not a monthly one — spend
+          it whenever suits. Each draft is capped at{" "}
           {definition.aiMaxOutputTokens.toLocaleString("en-US")} tokens of output.
         </p>
       </section>

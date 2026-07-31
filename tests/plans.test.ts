@@ -31,8 +31,8 @@ describe("the plan table", () => {
         expect(hasFeature("PRO", feature)).toBe(true);
       }
     }
-    expect(PLAN_DEFINITIONS.FREE.aiTokensPerMonth).toBeLessThan(
-      PLAN_DEFINITIONS.PRO.aiTokensPerMonth,
+    expect(PLAN_DEFINITIONS.FREE.aiTokenAllowance).toBeLessThan(
+      PLAN_DEFINITIONS.PRO.aiTokenAllowance,
     );
   });
 
@@ -41,10 +41,12 @@ describe("the plan table", () => {
     for (const limit of LIMITS) expect(limitFor("PRO", limit)).toBe(UNLIMITED);
   });
 
-  it("gives free a monthly allowance worth more than one generation", () => {
+  it("gives every plan a pool worth many generations, not one", () => {
     for (const plan of PLANS) {
-      expect(PLAN_DEFINITIONS[plan].aiTokensPerMonth).toBeGreaterThan(
-        PLAN_DEFINITIONS[plan].aiMaxOutputTokens,
+      // A pool that only covers a handful of requests would be a demo, not a
+      // tier — and on Pro it is bought once, so it has to last the engagement.
+      expect(PLAN_DEFINITIONS[plan].aiTokenAllowance).toBeGreaterThan(
+        PLAN_DEFINITIONS[plan].aiMaxOutputTokens * 10,
       );
     }
   });
@@ -93,14 +95,37 @@ describe("the message shown when a limit bites", () => {
   });
 });
 
-describe("the token meter", () => {
+const FREE_POOL = PLAN_DEFINITIONS.FREE.aiTokenAllowance;
+
+describe("the token pool", () => {
   it("counts down and floors at zero", () => {
-    expect(tokensRemaining("FREE", 0)).toBe(30_000);
-    expect(tokensRemaining("FREE", 29_000)).toBe(1_000);
-    expect(tokensRemaining("FREE", 999_999)).toBe(0);
+    expect(tokensRemaining("FREE", 0)).toBe(FREE_POOL);
+    expect(tokensRemaining("FREE", FREE_POOL - 1_000)).toBe(1_000);
+    expect(tokensRemaining("FREE", FREE_POOL * 10)).toBe(0);
   });
 
-  it("buckets by UTC calendar month", () => {
+  it("treats spending spread over time exactly like spending it at once", () => {
+    // This is what makes it a pool rather than a window: usage accumulates, and
+    // no boundary between the chunks gives any of it back. Under the old monthly
+    // reset these two would disagree the moment the chunks straddled the 1st.
+    const chunks = [4_000, 11_000, 7_500, 2_500];
+    const total = chunks.reduce((sum, chunk) => sum + chunk, 0);
+
+    let remaining = FREE_POOL;
+    for (const chunk of chunks) remaining -= chunk;
+
+    expect(tokensRemaining("FREE", total)).toBe(remaining);
+    expect(tokensRemaining("FREE", total)).toBe(FREE_POOL - 25_000);
+  });
+
+  it("never hands anything back once spent", () => {
+    expect(tokensRemaining("FREE", FREE_POOL)).toBe(0);
+    expect(canGenerate("FREE", FREE_POOL)).toBe(false);
+  });
+});
+
+describe("usagePeriod", () => {
+  it("still buckets by UTC calendar month, for the ledger", () => {
     expect(usagePeriod(new Date("2026-07-30T23:00:00Z"))).toBe("2026-07");
     expect(usagePeriod(new Date("2026-08-01T00:00:00Z"))).toBe("2026-08");
     // A January date must pad to two digits or the keys sort wrongly.
@@ -118,25 +143,28 @@ describe("outputTokenBudget", () => {
     expect(outputTokenBudget("FREE", 0, 300)).toBe(300);
   });
 
-  it("shrinks to what is left of the month rather than overspending", () => {
-    expect(outputTokenBudget("FREE", 29_400, 1_024)).toBe(600);
+  it("shrinks to what is left of the pool rather than overspending", () => {
+    expect(outputTokenBudget("FREE", FREE_POOL - 600, 1_024)).toBe(600);
   });
 
-  it("reaches zero once the month is spent", () => {
-    expect(outputTokenBudget("FREE", 30_000, 1_024)).toBe(0);
-    expect(outputTokenBudget("FREE", 40_000, 1_024)).toBe(0);
+  it("reaches zero once the pool is spent, and stays there", () => {
+    expect(outputTokenBudget("FREE", FREE_POOL, 1_024)).toBe(0);
+    expect(outputTokenBudget("FREE", FREE_POOL * 2, 1_024)).toBe(0);
   });
 });
 
 describe("canGenerate", () => {
   it("stops short of a uselessly small answer", () => {
-    expect(canGenerate("FREE", 30_000 - MIN_USEFUL_OUTPUT_TOKENS)).toBe(true);
-    expect(canGenerate("FREE", 30_000 - MIN_USEFUL_OUTPUT_TOKENS + 1)).toBe(false);
+    expect(canGenerate("FREE", FREE_POOL - MIN_USEFUL_OUTPUT_TOKENS)).toBe(true);
+    expect(canGenerate("FREE", FREE_POOL - MIN_USEFUL_OUTPUT_TOKENS + 1)).toBe(
+      false,
+    );
   });
 
   it("agrees with the budget it would be given", () => {
     // The two must not disagree: a plan cleared to generate must get tokens.
-    for (const used of [0, 15_000, 29_000, 29_800, 30_000]) {
+    const points = [0, FREE_POOL / 2, FREE_POOL - 1_000, FREE_POOL - 200, FREE_POOL];
+    for (const used of points) {
       if (canGenerate("FREE", used)) {
         expect(outputTokenBudget("FREE", used, 1_024)).toBeGreaterThanOrEqual(
           MIN_USEFUL_OUTPUT_TOKENS,

@@ -113,21 +113,31 @@ export async function requireFeature(
   }
 }
 
-/** Tokens this wedding has spent in the current calendar month. */
+/**
+ * Everything this wedding has ever spent on the assistant.
+ *
+ * The allowance is a pool for the whole wedding, so the meter is the sum of every
+ * month rather than the current one. Usage is still *recorded* per month: one
+ * running total could never answer "when did that go?", and the rows cost nothing
+ * to keep. Summed in the database rather than in Node — there is no reason to pull
+ * two years of rows across to add them up.
+ */
 export async function loadAiUsage(weddingId: string, now = new Date()) {
-  const period = usagePeriod(now);
-  const row = await prisma.aiUsage.findUnique({
-    where: { weddingId_period: { weddingId, period } },
-    select: { inputTokens: true, outputTokens: true, requests: true },
+  const totals = await prisma.aiUsage.aggregate({
+    where: { weddingId },
+    _sum: { inputTokens: true, outputTokens: true, requests: true },
   });
 
-  const used = (row?.inputTokens ?? 0) + (row?.outputTokens ?? 0);
+  const inputTokens = totals._sum.inputTokens ?? 0;
+  const outputTokens = totals._sum.outputTokens ?? 0;
+
   return {
-    period,
-    used,
-    requests: row?.requests ?? 0,
-    inputTokens: row?.inputTokens ?? 0,
-    outputTokens: row?.outputTokens ?? 0,
+    /** The month the next request would be recorded under, not a meter window. */
+    period: usagePeriod(now),
+    used: inputTokens + outputTokens,
+    requests: totals._sum.requests ?? 0,
+    inputTokens,
+    outputTokens,
   };
 }
 
@@ -137,6 +147,9 @@ export async function loadAiUsage(weddingId: string, now = new Date()) {
  * Counts the API's reported usage rather than the requested `max_tokens`, because
  * a generation that stops early costs less and the meter should agree with the
  * bill. Written after the call, so a failed request is not charged.
+ *
+ * Still filed under a month. That is a ledger line, not a reset: the pool is the
+ * sum of these rows and nothing here ever clears them.
  */
 export async function recordAiUsage(
   weddingId: string,
@@ -292,7 +305,7 @@ export async function loadPlanSummary(weddingId: string, now = new Date()) {
     unlockedAt: wedding.planUnlockedAt,
     usage: {
       ...usage,
-      allowance: definition.aiTokensPerMonth,
+      allowance: definition.aiTokenAllowance,
       remaining: tokensRemaining(plan, usage.used),
     },
     counts: Object.fromEntries(counts) as Record<CountableLimit, number>,

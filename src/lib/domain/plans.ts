@@ -43,11 +43,12 @@ export type PlanDefinition = {
   limits: Record<CountableLimit, number>;
   features: Record<PlanFeature, boolean>;
   /**
-   * Model tokens per calendar month, counted as input + output actually reported
-   * by the API. Zero means the assistant is off for this plan.
+   * Model tokens for the life of this wedding, counted as input + output actually
+   * reported by the API. Not a monthly rate — a pool that is spent once and does
+   * not come back. Zero means the assistant is off for this plan.
    */
-  aiTokensPerMonth: number;
-  /** Ceiling on a single generation, so one request cannot eat the month. */
+  aiTokenAllowance: number;
+  /** Ceiling on a single generation, so one request cannot eat the pool. */
   aiMaxOutputTokens: number;
   /** Anonymous guest posts per wedding per day, across gallery and guest book. */
   guestPostsPerDay: number;
@@ -63,8 +64,13 @@ export const UNLIMITED = Number.POSITIVE_INFINITY;
  *
  * Pro is unlocked once for one wedding and never expires. A wedding is a project
  * with an end date, not an ongoing service, so a monthly charge would be renting
- * someone a thing they are trying to finish. The one number that still resets
- * monthly is the model allowance — that is a cost ceiling, not a billing period.
+ * someone a thing they are trying to finish.
+ *
+ * The model allowance follows the same shape: **a pool for the whole wedding, not
+ * a monthly rate.** A one-time payment cannot fund an allowance that renews for
+ * ever, and a couple planning in a three-week sprint should not be rationed for it
+ * while one drifting over two years gets twenty-four times as much for the same
+ * money. Spend it whenever it suits.
  */
 export const PLAN_DEFINITIONS: Record<Plan, PlanDefinition> = {
   FREE: {
@@ -89,7 +95,9 @@ export const PLAN_DEFINITIONS: Record<Plan, PlanDefinition> = {
       moodBoardSharing: true,
       customTimeline: false,
     },
-    aiTokensPerMonth: 30_000,
+    // ~30 generations. Enough to genuinely try the assistant on a few speeches
+    // and decide whether it is worth unlocking, which is what a free tier is for.
+    aiTokenAllowance: 60_000,
     aiMaxOutputTokens: 1_024,
     guestPostsPerDay: 100,
   },
@@ -115,7 +123,10 @@ export const PLAN_DEFINITIONS: Record<Plan, PlanDefinition> = {
       moodBoardSharing: true,
       customTimeline: true,
     },
-    aiTokensPerMonth: 500_000,
+    // ~500 generations across the whole engagement. Deliberately far more than
+    // anyone writing one set of vows will use: the ceiling exists to bound a
+    // runaway, not to ration a couple who paid.
+    aiTokenAllowance: 2_000_000,
     aiMaxOutputTokens: 4_096,
     guestPostsPerDay: 2_000,
   },
@@ -197,29 +208,30 @@ export function featureMessage(feature: PlanFeature): string {
   return `${labels[feature]} is a Pro feature.`;
 }
 
-export type UsageWindow = {
-  /** `YYYY-MM`, UTC. */
-  period: string;
-  used: number;
-  allowance: number;
-};
-
-/** The calendar month a moment falls in, in UTC — the meter's bucket key. */
+/**
+ * The calendar month a moment falls in, in UTC.
+ *
+ * No longer the meter — the allowance is a lifetime pool, and spending is summed
+ * across every month. This survives as the key usage is *recorded* under, so the
+ * couple and support can still see when tokens went, which "one running total"
+ * alone could never answer.
+ */
 export function usagePeriod(now: Date = new Date()): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+/** What is left of the wedding's pool. Spent is spent — nothing restores it. */
 export function tokensRemaining(plan: Plan, used: number): number {
-  return Math.max(0, PLAN_DEFINITIONS[plan].aiTokensPerMonth - used);
+  return Math.max(0, PLAN_DEFINITIONS[plan].aiTokenAllowance - used);
 }
 
 /**
- * The output ceiling for one request: the plan's cap, or what is left of the
- * month if that is smaller.
+ * The output ceiling for one request: the plan's per-request cap, or what is left
+ * of the pool if that is smaller.
  *
- * Returning the remainder rather than refusing outright means the last request of
- * the month produces something short instead of nothing — but never less than a
- * usable minimum, since a two-token answer helps nobody.
+ * Returning the remainder rather than refusing outright means the last request
+ * produces something short instead of nothing — but never less than a usable
+ * minimum, since a two-token answer helps nobody.
  */
 export const MIN_USEFUL_OUTPUT_TOKENS = 256;
 

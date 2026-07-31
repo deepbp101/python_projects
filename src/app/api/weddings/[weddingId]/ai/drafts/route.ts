@@ -46,9 +46,9 @@ export const POST = route(async (request: Request, { params }: Params) => {
   await requireFeature(weddingId, "aiWriting");
   await requireCapacity(weddingId, "aiDrafts", "saved drafts");
 
-  // The month's budget is checked before spending anything, and the request's own
-  // ceiling is lowered to whatever is left — so the last generation of the month
-  // comes back short rather than not at all.
+  // The pool is checked before spending anything, and the request's own ceiling is
+  // lowered to whatever is left — so the last generation comes back short rather
+  // than not at all.
   const plan = await loadPlan(weddingId);
   const usage = await loadAiUsage(weddingId);
 
@@ -57,14 +57,17 @@ export const POST = route(async (request: Request, { params }: Params) => {
     // figure to a couple planning a wedding measures the wrong thing in a unit
     // they have no use for. The exact counts are in the details, and on the
     // settings page.
+    //
+    // And no promise of a reset, because there isn't one. The allowance is a pool
+    // for the whole wedding; telling someone to come back on the 1st when nothing
+    // will have changed is worse than telling them it's gone.
     throw new PlanLimitError(
-      `You've used this month's assistant allowance. It resets on the 1st${
-        plan === "FREE" ? ", or Pro raises the allowance" : ""
-      }.`,
+      plan === "FREE"
+        ? "You've used the assistant allowance that comes with Free. Unlocking Pro comes with a much larger one."
+        : "You've used this wedding's assistant allowance. Get in touch and we'll sort it out.",
       {
-        period: usage.period,
         used: usage.used,
-        allowance: planDefinition(plan).aiTokensPerMonth,
+        allowance: planDefinition(plan).aiTokenAllowance,
         remaining: tokensRemaining(plan, usage.used),
       },
     );

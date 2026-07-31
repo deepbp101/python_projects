@@ -252,9 +252,12 @@ features that cost storage and support.
 | Guest book entries     | 25     | unlimited |
 | Tables                 | 8      | unlimited |
 | Saved AI drafts        | 5      | unlimited |
-| Assistant tokens/month | 30,000 | 500,000   |
+| Assistant tokens       | 60,000 | 2,000,000 |
 | Output tokens/request  | 1,024  | 4,096     |
 | Guest posts/day        | 100    | 2,000     |
+
+Assistant tokens are a pool for the whole wedding, not a monthly rate — see
+below. Everything else is a ceiling on how many may exist at once.
 
 Vendor messaging, venue tours, recorded guest book entries and editable timeline
 templates are Pro only.
@@ -263,8 +266,12 @@ templates are Pro only.
 
 A wedding is a project with an end date, not an ongoing service, so Pro is bought
 once for one wedding and never expires — no renewal, no cancellation, nothing to
-forget to turn off. The only thing that still resets monthly is the model
-allowance, and that is a cost ceiling rather than a billing period.
+forget to turn off.
+
+The model allowance has the same shape: **a pool for the whole wedding, not a
+monthly rate.** A one-time payment cannot fund an allowance that renews for ever,
+and a couple planning in a three-week sprint should not be rationed for it while
+one drifting over two years gets twenty-four times as much for the same money.
 
 There is no payment provider wired up. What exists instead is the thing a payment
 provider would eventually drive: a redeemable code.
@@ -302,9 +309,14 @@ plan with 20 already there is refused outright rather than applied halfway.
 
 **Tokens are charged after the call, from what the API reported** — not from the
 requested `max_tokens`, so a generation that stops early costs less and the meter
-agrees with the bill. A failed request is free. The month's remainder also lowers
-the request's own ceiling, so the last generation of the month comes back short
-rather than not at all — but never shorter than a usable minimum.
+agrees with the bill. A failed request is free. What is left of the pool also
+lowers the request's own ceiling, so the last generation comes back short rather
+than not at all — but never shorter than a usable minimum.
+
+**Usage is still recorded per calendar month**, and the pool is the sum of those
+rows. One running total could never answer "when did that go?", the rows cost
+nothing to keep, and nothing ever clears them — a month boundary is a ledger line,
+not a reset.
 
 ### Rate limiting the anonymous surfaces
 
