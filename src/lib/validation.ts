@@ -670,3 +670,12 @@ export const vendorMediaSchema = z
       path: ["kind"],
     },
   );
+
+/**
+ * A Pro unlock code as typed. Deliberately loose on shape — spacing, dashes and
+ * the prefix are all normalised later, and a length ceiling is enough here to
+ * keep an essay out of the hashing function.
+ */
+export const unlockCodeSchema = z.object({
+  code: trimmed(64),
+});

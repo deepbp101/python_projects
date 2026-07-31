@@ -1,6 +1,8 @@
 import clsx from "clsx";
+import { PlanUnlock } from "@/components/plan-unlock";
 import { Badge, Card, CardTitle } from "@/components/ui";
 import type { Plan } from "@/generated/prisma/enums";
+import { formatLongDate } from "@/lib/dates";
 import {
   describeLimit,
   limitFor,
@@ -14,9 +16,11 @@ import {
  * What this wedding's plan allows, and how much of it is spent.
  *
  * Reads the same table the server enforces against (`@/lib/domain/plans`), so the
- * numbers here cannot drift from the ones that actually refuse a request. There is
- * no upgrade button because there is no billing yet — saying so is more honest
- * than a button that does nothing.
+ * numbers here cannot drift from the ones that actually refuse a request.
+ *
+ * Pro is a one-time unlock, so there is a code field rather than a checkout — and
+ * once redeemed, a date rather than a renewal notice. Nothing on this page can
+ * take Pro away again: downgrading a couple who paid is not a button.
  */
 
 const LIMIT_LABELS: Record<CountableLimit, string> = {
@@ -59,11 +63,18 @@ function Meter({ used, of }: { used: number; of: number }) {
 }
 
 export function PlanPanel({
+  weddingId,
   plan,
+  unlockedAt,
+  isOwner,
   usage,
   counts,
 }: {
+  weddingId: string;
   plan: Plan;
+  unlockedAt: Date | null;
+  /** Only the couple can redeem a code, so only they are shown the field. */
+  isOwner: boolean;
   usage: {
     period: string;
     used: number;
@@ -168,13 +179,31 @@ export function PlanPanel({
         </ul>
       </section>
 
-      {plan === "FREE" && (
-        <p className="mt-6 border-t border-line pt-4 text-sm text-ink-soft">
-          Pro lifts every cap and turns on vendor messaging, venue tours and
-          recorded guest book entries. Billing isn&rsquo;t open yet — this is
-          here so you can see where you stand.
-        </p>
-      )}
+      <div className="mt-6 border-t border-line pt-4">
+        {plan === "FREE" ? (
+          <>
+            <p className="text-sm text-ink-soft">
+              Pro lifts every cap and turns on vendor messaging, venue tours and
+              recorded guest book entries. It&rsquo;s unlocked once for this
+              wedding and never expires — you&rsquo;re planning a day, not
+              subscribing to one.
+            </p>
+            {isOwner ? (
+              <PlanUnlock weddingId={weddingId} />
+            ) : (
+              <p className="mt-3 text-sm text-ink-faint">
+                Only the couple can unlock Pro.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-ink-soft">
+            Pro is unlocked for this wedding
+            {unlockedAt && <> — redeemed {formatLongDate(unlockedAt)}</>}. There
+            is nothing to renew and nothing to cancel.
+          </p>
+        )}
+      </div>
     </Card>
   );
 }

@@ -19,6 +19,7 @@ import { generateTimeline } from "@/lib/domain/timeline";
 import { scoreStyle } from "@/lib/domain/style";
 import { vendorSlugFrom } from "@/lib/domain/vendors";
 import { defaultPermissionsForRole } from "@/lib/permissions";
+import { mintUnlockCode } from "@/lib/services/plan";
 import { slugify } from "@/lib/services/wedding";
 import { buildStorageKey, getStorage } from "@/lib/storage";
 
@@ -70,6 +71,11 @@ async function main() {
   // everything above. Cleared too: reseeding to try the guest pages and finding
   // yourself still throttled from the last run is nobody's idea of a fresh start.
   await prisma.rateLimit.deleteMany({});
+  // Unlock codes survive their wedding by design (the FK nulls rather than
+  // cascades, so a deleted workspace does not destroy the record that a code was
+  // spent). That is right in production and wrong for a reseed, which wants a
+  // clean slate.
+  await prisma.unlockCode.deleteMany({});
   // Stored files are outside the database, so they need clearing separately.
   await rm(process.env.UPLOAD_DIR ?? ".uploads", { recursive: true, force: true });
 
@@ -107,7 +113,10 @@ async function main() {
       // Pro, because the demo is meant to show the whole product — vendor
       // messaging, venue tours and recorded guest book entries are all Pro, and
       // on Free the seeded florist thread would answer 402 instead of opening.
+      // Unlocked a while back, so the settings panel shows a real date rather
+      // than a suspiciously fresh one.
       plan: "PRO",
+      planUnlockedAt: subDays(today, 210),
     },
   });
 
@@ -1142,6 +1151,23 @@ async function main() {
     });
   }
 
+  console.log("Minting Pro unlock codes…");
+  // The demo wedding's Pro came from somewhere. Recording the redemption that
+  // bought it keeps the data honest — a plan with no history behind it is a flag
+  // someone flipped, which is exactly what this design is trying not to be. This
+  // one is spent, so its code is never printed.
+  await prisma.unlockCode.create({
+    data: {
+      codeHash: hashToken(`demo-spent-${wedding.id}`),
+      label: "Demo — redeemed by Sam & Alex",
+      weddingId: wedding.id,
+      redeemedAt: subDays(today, 210),
+    },
+  });
+  // And one going spare, minted through the same function the CLI uses, so
+  // redeeming can be tried end to end against a Free wedding.
+  const spareUnlockCode = await mintUnlockCode("Demo — spare, unredeemed");
+
   console.log("Issuing itinerary links…");
   const itineraryTokens = new Map<string, string>();
   const namedGuests = await prisma.guest.findMany({
@@ -1258,6 +1284,10 @@ ${photoCount} guest photos and ${entryCount} guest book entries (one of each awa
   Florist's thread: /vendor/${FERN_TOKEN}
   ${demoGuest.firstName}'s itinerary: /itinerary/${demoItineraryToken}
                     (personal — shows only their own day, and where they RSVP)
+
+  Spare Pro unlock code: ${spareUnlockCode}
+                    (redeem it in Settings on a Free wedding — this one is
+                     already Pro. Mint more with npm run plan:mint-code)
 
   Sign in with any of these (password: ${DEMO_PASSWORD})
     sam@example.com     owner

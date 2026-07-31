@@ -61,7 +61,7 @@ export default async function SettingsPage({
         }))}
       />
 
-      <PlanPanel {...planSummary} />
+      <PlanPanel weddingId={weddingId} isOwner={isOwner} {...planSummary} />
     </main>
   );
 }

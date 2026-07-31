@@ -38,7 +38,7 @@ export type PlanFeature =
 
 export type PlanDefinition = {
   label: string;
-  /** One line for the upgrade panel. Not a price — billing is not built yet. */
+  /** One line for the upgrade panel. Not a price — nothing here charges anyone. */
   blurb: string;
   limits: Record<CountableLimit, number>;
   features: Record<PlanFeature, boolean>;
@@ -60,6 +60,11 @@ export const UNLIMITED = Number.POSITIVE_INFINITY;
  * Free is a real, usable product — a couple can plan a whole small wedding on it.
  * What it does not get is the expensive surface: model tokens, unlimited guest
  * uploads, and the vendor and tour features that cost storage and support.
+ *
+ * Pro is unlocked once for one wedding and never expires. A wedding is a project
+ * with an end date, not an ongoing service, so a monthly charge would be renting
+ * someone a thing they are trying to finish. The one number that still resets
+ * monthly is the model allowance — that is a cost ceiling, not a billing period.
  */
 export const PLAN_DEFINITIONS: Record<Plan, PlanDefinition> = {
   FREE: {
@@ -90,7 +95,7 @@ export const PLAN_DEFINITIONS: Record<Plan, PlanDefinition> = {
   },
   PRO: {
     label: "Pro",
-    blurb: "Everything, uncapped, for the whole planning year.",
+    blurb: "Unlocked for this wedding. Everything uncapped, no renewal.",
     limits: {
       guests: UNLIMITED,
       collaborators: UNLIMITED,

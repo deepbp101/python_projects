@@ -1,5 +1,7 @@
+import { randomInt } from "node:crypto";
 import type { Plan } from "@/generated/prisma/enums";
-import { ApiError } from "@/lib/api";
+import { ApiError, badRequest } from "@/lib/api";
+import { hashToken } from "@/lib/auth/tokens";
 import { prisma } from "@/lib/db";
 import {
   featureMessage,
@@ -12,6 +14,14 @@ import {
   type CountableLimit,
   type PlanFeature,
 } from "@/lib/domain/plans";
+import {
+  formatUnlockCode,
+  looksLikeUnlockCode,
+  normalizeUnlockCode,
+  UNLOCK_ALPHABET,
+  UNLOCK_GROUPS,
+  UNLOCK_GROUP_SIZE,
+} from "@/lib/domain/unlock";
 
 /**
  * Enforcement for plan limits.
@@ -152,9 +162,113 @@ export async function recordAiUsage(
   });
 }
 
+/**
+ * Mints a code. Returns the raw code once — only the hash is stored, so this is
+ * the only moment it exists in readable form.
+ *
+ * `randomInt` rather than `randomBytes % length`: the alphabet is 32 characters
+ * and 256 is a multiple of 32, so modulo would be uniform here by luck. Relying
+ * on that breaks silently the day someone edits the alphabet.
+ */
+export async function mintUnlockCode(label?: string): Promise<string> {
+  const body = Array.from(
+    { length: UNLOCK_GROUPS * UNLOCK_GROUP_SIZE },
+    () => UNLOCK_ALPHABET[randomInt(UNLOCK_ALPHABET.length)],
+  ).join("");
+
+  await prisma.unlockCode.create({
+    data: { codeHash: hashToken(body), label: label ?? null },
+  });
+
+  return formatUnlockCode(body);
+}
+
+/** Raised when a code cannot be redeemed. 400, not 402 — this is a typo, not a limit. */
+export class UnlockError extends ApiError {
+  constructor(message: string) {
+    super(400, message);
+  }
+}
+
+/**
+ * Redeems a code, unlocking Pro for one wedding, permanently.
+ *
+ * One-way and one-to-one, enforced by the database rather than by checking
+ * first: the update is conditional on the code still being unredeemed, and
+ * `weddingId` is unique on the table. Two people redeeming the same code at the
+ * same moment therefore cannot both win, and a wedding cannot stack two codes.
+ *
+ * Redeeming is deliberately not reversible in the app. Refunds are a
+ * conversation, not a button, and a button that silently revokes a couple's
+ * paid features is worse than no button.
+ */
+export async function redeemUnlockCode(
+  weddingId: string,
+  input: string,
+): Promise<{ plan: Plan; unlockedAt: Date }> {
+  const body = normalizeUnlockCode(input);
+  if (!looksLikeUnlockCode(body)) {
+    throw new UnlockError(
+      "That doesn't look like an unlock code. They look like WED-XXXX-XXXX-XXXX-XXXX.",
+    );
+  }
+
+  const existing = await prisma.wedding.findUniqueOrThrow({
+    where: { id: weddingId },
+    select: { plan: true, planUnlockedAt: true },
+  });
+  if (existing.plan === "PRO") {
+    throw new UnlockError(
+      "This wedding is already on Pro — there's nothing left to unlock. Keep the code for another couple.",
+    );
+  }
+
+  const unlockedAt = new Date();
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // Conditional on redeemedAt still being null: this is what makes a second
+      // redemption of the same code lose rather than double-count.
+      const claimed = await tx.unlockCode.updateMany({
+        where: { codeHash: hashToken(body), redeemedAt: null },
+        data: { redeemedAt: unlockedAt, weddingId },
+      });
+
+      if (claimed.count === 0) {
+        throw new UnlockError(
+          "That code isn't valid, or it has already been used. Check it against what you were sent.",
+        );
+      }
+
+      const wedding = await tx.wedding.update({
+        where: { id: weddingId },
+        data: { plan: "PRO", planUnlockedAt: unlockedAt },
+        select: { plan: true, planUnlockedAt: true },
+      });
+
+      return { plan: wedding.plan, unlockedAt: wedding.planUnlockedAt! };
+    });
+  } catch (error) {
+    // The unique index on weddingId is the last line of defence against two
+    // codes landing on one wedding concurrently. Report it as what it is.
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      throw badRequest("This wedding has already been unlocked.");
+    }
+    throw error;
+  }
+}
+
 /** Plan, month-to-date usage and what is left — for the settings page. */
 export async function loadPlanSummary(weddingId: string, now = new Date()) {
-  const plan = await loadPlan(weddingId);
+  const wedding = await prisma.wedding.findUniqueOrThrow({
+    where: { id: weddingId },
+    select: { plan: true, planUnlockedAt: true },
+  });
+  const plan = wedding.plan;
   const usage = await loadAiUsage(weddingId, now);
   const definition = planDefinition(plan);
 
@@ -175,6 +289,7 @@ export async function loadPlanSummary(weddingId: string, now = new Date()) {
 
   return {
     plan,
+    unlockedAt: wedding.planUnlockedAt,
     usage: {
       ...usage,
       allowance: definition.aiTokensPerMonth,

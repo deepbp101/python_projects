@@ -77,6 +77,7 @@ moderation queue is not empty on first look.
 | `npm run db:migrate` | Create and apply a migration |
 | `npm run db:seed` | Reset and reseed demo data |
 | `npm run db:studio` | Prisma Studio |
+| `npm run plan:mint-code` | Mint one-time Pro unlock codes |
 
 ## What's built
 
@@ -258,6 +259,40 @@ features that cost storage and support.
 Vendor messaging, venue tours, recorded guest book entries and editable timeline
 templates are Pro only.
 
+### Pro is a one-time unlock
+
+A wedding is a project with an end date, not an ongoing service, so Pro is bought
+once for one wedding and never expires — no renewal, no cancellation, nothing to
+forget to turn off. The only thing that still resets monthly is the model
+allowance, and that is a cost ceiling rather than a billing period.
+
+There is no payment provider wired up. What exists instead is the thing a payment
+provider would eventually drive: a redeemable code.
+
+```
+npm run plan:mint-code -- --count 3 --label "launch batch"
+```
+
+The code is printed once — only its hash is stored, so a lost code is reissued,
+never recovered — and the couple redeem it in Settings. When a provider is added,
+its webhook mints and redeems a code and nothing else in the app changes. That is
+the point of making the unlock **an event rather than a flag**: `UnlockCode` records
+which wedding spent which code and when, and `Wedding.planUnlockedAt` is a date
+the couple can be shown.
+
+Redemption is one-way and one-to-one, enforced by the database rather than by
+checking first: the claiming update is conditional on `redeemedAt` still being
+null, and `weddingId` is unique on the table. Two people redeeming the same code
+at the same moment cannot both win, and a wedding cannot stack two. There is no
+un-redeem — refunds are a conversation, not a button that silently strips a
+couple's paid features.
+
+Codes read `WED-XXXX-XXXX-XXXX-XXXX` over an alphabet with `I`, `O`, `0` and `1`
+removed. That costs about a bit and a half of entropy out of ~99 and removes the
+whole class of "it says it's wrong but I typed it right". Case, spacing, dashes
+and the prefix are all normalised server-side, so however someone types what they
+were sent, it works.
+
 **Limits answer 402, not 403.** The caller is who they say they are and is
 allowed to do this in principle — the workspace just is not paying for it, and a
 client should show an upgrade prompt rather than an access error.
@@ -415,9 +450,12 @@ and QuickTime.
   offer their recorder from `capture`, but a laptop user has to find a file.
 - The panorama viewer pans rather than projects, so there is no vertical look and
   no true perspective (see Phase 4 above).
-- **Nobody can actually buy Pro.** The plan is a column on the wedding, set by
-  hand or in the seed; there is no billing provider, no checkout and no way for a
-  couple to upgrade themselves.
+- **No payment provider.** Pro unlocks from a code, and codes are minted from the
+  command line — so somebody has to run a script and send one. Checkout is the
+  missing piece, not the unlock mechanism.
+- **Minting codes has no authentication beyond shell access** to the server. That
+  is the right trade for a CLI, but it means anyone who can run commands there can
+  mint themselves Pro.
 - Rate limiting uses fixed windows, which can allow up to twice the nominal rate
   across a window boundary. Fine for stopping a script, not a precise meter.
 - Rate limit windows are pruned opportunistically by the endpoints that write

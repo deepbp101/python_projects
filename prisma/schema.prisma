@@ -99,22 +99,27 @@ enum Plan {
 }
 
 model Wedding {
-  id            String   @id @default(cuid())
-  slug          String   @unique
-  title         String
-  weddingDate   DateTime
-  venueName     String?
-  location      String?
-  timezone      String   @default("UTC")
-  currency      String   @default("USD")
-  totalBudget   Int      @default(0)
+  id             String    @id @default(cuid())
+  slug           String    @unique
+  title          String
+  weddingDate    DateTime
+  venueName      String?
+  location       String?
+  timezone       String    @default("UTC")
+  currency       String    @default("USD")
+  totalBudget    Int       @default(0)
   /// What this workspace is entitled to. See src/lib/domain/plans.ts — the plan
   /// is the only thing stored; every limit is derived from it, so changing the
   /// allowances is a code change rather than a data migration.
-  plan          Plan     @default(FREE)
-  coverImageUrl String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  plan           Plan      @default(FREE)
+  /// When Pro was unlocked. Pro is bought once for this wedding, not rented, so
+  /// there is no renewal date and no expiry — this is a record of the event, kept
+  /// so the couple can be told when it happened and support can answer "since
+  /// when?". Null on Free.
+  planUnlockedAt DateTime?
+  coverImageUrl  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   collaborators    Collaborator[]
   tasks            Task[]
@@ -135,8 +140,35 @@ model Wedding {
   aiDrafts         AiDraft[]
   styleProfile     StyleProfile?
   aiUsage          AiUsage[]
+  unlockCode       UnlockCode?
 
   @@map("weddings")
+}
+
+/// A one-time Pro unlock, redeemed by typing a code into the settings page.
+///
+/// Pro is bought once for one wedding, so redemption is a one-way door: a code
+/// carries `redeemedAt` and the wedding that used it, and the unique constraint on
+/// `weddingId` means a wedding cannot stack two.
+///
+/// There is no payment provider yet, so codes are minted out of band
+/// (`npm run plan:mint-code`). When one is wired up, its webhook mints and redeems
+/// a code and nothing else in the app changes — which is the point of making the
+/// unlock an event rather than a flag someone flips.
+model UnlockCode {
+  id         String    @id @default(cuid())
+  /// Only the hash is stored, like every other credential here. A lost code
+  /// cannot be recovered, only reissued.
+  codeHash   String    @unique
+  /// Who it was issued to or why — free text for whoever mints it.
+  label      String?
+  weddingId  String?   @unique
+  redeemedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  wedding Wedding? @relation(fields: [weddingId], references: [id], onDelete: SetNull)
+
+  @@map("unlock_codes")
 }
 
 /// Membership of a wedding workspace. A row exists from the moment an invite is
