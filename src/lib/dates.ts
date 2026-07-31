@@ -106,6 +106,40 @@ export function formatDateTimeInZone(
   });
 }
 
+/**
+ * The calendar day an instant falls on **in the given zone**, as `YYYY-MM-DD`.
+ *
+ * For grouping, not display. `en-CA` is used because it formats as ISO order;
+ * comparing these strings is how we tell "same day" without dragging a date
+ * library in, and it must be done in the wedding's zone — an 8pm reception in New
+ * York is already tomorrow in UTC, and would otherwise split across two days.
+ */
+export function dayKeyInZone(
+  date: Date | string,
+  timeZone: string | null | undefined,
+): string {
+  return new Date(date).toLocaleDateString("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: zoneOrUtc(timeZone),
+  });
+}
+
+/** "Wednesday, March 31, 2027" in the wedding's zone — a heading, not a key. */
+export function formatDayInZone(
+  date: Date | string,
+  timeZone: string | null | undefined,
+): string {
+  return new Date(date).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: zoneOrUtc(timeZone),
+  });
+}
+
 /** The zone's short name — "EDT", "GMT+2" — so a guest knows which clock. */
 export function timeZoneLabel(timeZone: string | null | undefined): string {
   const zone = zoneOrUtc(timeZone);

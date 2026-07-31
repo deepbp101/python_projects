@@ -1,3 +1,4 @@
+import clsx from "clsx";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -127,11 +128,23 @@ export default async function ItineraryPage({ params }: Params) {
                 </p>
               ) : (
                 <ol className="space-y-4">
-                  {itinerary.events.map((event) => (
+                  {itinerary.events.map((event, index) => (
                     <li
                       key={event.id}
                       className="border-l-2 border-clay-soft pl-4"
                     >
+                      {/* Only present when the schedule crosses a day — see buildItinerary.
+                          The rule above it separates days; the first one needs none. */}
+                      {event.dayLabel && (
+                        <p
+                          className={clsx(
+                            "-ml-4 mb-2 text-[11px] font-medium uppercase tracking-[0.15em] text-clay",
+                            index > 0 && "border-t border-line pt-4",
+                          )}
+                        >
+                          {event.dayLabel}
+                        </p>
+                      )}
                       <div className="flex flex-wrap items-baseline gap-x-3">
                         <span className="tabular font-display text-base text-ink">
                           {event.timeLabel}

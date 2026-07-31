@@ -1,5 +1,5 @@
 import type { RsvpStatus } from "@/generated/prisma/enums";
-import { formatTimeInZone } from "@/lib/dates";
+import { dayKeyInZone, formatDayInZone, formatTimeInZone } from "@/lib/dates";
 
 /**
  * A guest's personal schedule, assembled from data the couple already maintains:
@@ -36,6 +36,16 @@ export type ItineraryEventInput = {
 export type ItineraryEvent = ItineraryEventInput & {
   /** Pre-formatted in the wedding's timezone, so the page has no clock logic. */
   timeLabel: string;
+  /**
+   * A day heading to print above this event, or null for none.
+   *
+   * Only set on the first event of each day, and only when the schedule actually
+   * spans more than one day. Most weddings are a single day, where a heading
+   * repeating the date already in the page header is noise — but a farewell
+   * brunch turns "10:30 AM" under "5:30 PM" into something that reads like it
+   * happens before dinner. The date earns its place exactly when it disambiguates.
+   */
+  dayLabel: string | null;
 };
 
 export type Itinerary = {
@@ -80,12 +90,7 @@ export function buildItinerary({
     guestName: `${guest.firstName} ${guest.lastName}`.trim(),
     showSchedule: attending,
     status: guest.status,
-    events: attending
-      ? [...events].sort(byStart).map((event) => ({
-          ...event,
-          timeLabel: formatEventWindow(event, timezone),
-        }))
-      : [],
+    events: attending ? withDayHeadings([...events].sort(byStart), timezone) : [],
     seating: attending && guest.tableName ? { tableName: guest.tableName } : null,
     meal:
       attending && (guest.mealName || guest.dietaryRestrictions)
@@ -97,6 +102,30 @@ export function buildItinerary({
     plusOneName: attending ? guest.plusOneName : null,
     householdName: guest.householdName,
   };
+}
+
+/**
+ * Formats each event and marks where a new day starts.
+ *
+ * Expects the events already sorted. Days are compared in the wedding's own zone,
+ * not UTC — an 8pm reception in New York is already tomorrow by UTC, and grouping
+ * on that would split a single evening across two headings.
+ */
+function withDayHeadings(
+  sorted: ItineraryEventInput[],
+  timezone: string | null | undefined,
+): ItineraryEvent[] {
+  const dayKeys = sorted.map((event) => dayKeyInZone(event.startsAt, timezone));
+  const spansDays = new Set(dayKeys).size > 1;
+
+  return sorted.map((event, index) => ({
+    ...event,
+    timeLabel: formatEventWindow(event, timezone),
+    dayLabel:
+      spansDays && dayKeys[index] !== dayKeys[index - 1]
+        ? formatDayInZone(event.startsAt, timezone)
+        : null,
+  }));
 }
 
 /** "4:00 PM" or "4:00 PM – 10:00 PM" when the event has an end. */

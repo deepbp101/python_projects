@@ -186,3 +186,64 @@ describe("formatEventWindow", () => {
     ).toBe("8:00 PM");
   });
 });
+
+describe("day headings on the schedule", () => {
+  // Ceremony and dinner on the wedding day; brunch the next morning. Without a
+  // heading the brunch reads as "10:30 AM" below "5:30 PM" — as if it came first.
+  const ceremony = event("Ceremony", "2027-03-31T19:00:00Z");
+  const dinner = event("Dinner", "2027-03-31T21:30:00Z");
+  const brunch = event("Brunch", "2027-04-01T14:30:00Z");
+
+  const build = (events: ItineraryEventInput[], timezone = "America/New_York") =>
+    buildItinerary({ guest: guest("ATTENDING"), events, timezone });
+
+  it("labels nothing when the whole schedule is one day", () => {
+    const result = build([ceremony, dinner]);
+    expect(result.events.map((entry) => entry.dayLabel)).toEqual([null, null]);
+  });
+
+  it("labels each day once when the schedule crosses midnight", () => {
+    const result = build([ceremony, dinner, brunch]);
+    expect(result.events.map((entry) => entry.dayLabel)).toEqual([
+      "Wednesday, March 31, 2027",
+      null,
+      "Thursday, April 1, 2027",
+    ]);
+  });
+
+  it("groups by the wedding's day, not UTC's", () => {
+    // 9:30pm in New York on the 31st is 01:30 UTC on the 1st. Grouping on UTC
+    // would put dinner on its own day and split one evening in two.
+    const lateDinner = event("Dinner", "2027-04-01T01:30:00Z");
+
+    const newYork = build([ceremony, lateDinner]);
+    expect(newYork.events.map((entry) => entry.dayLabel)).toEqual([null, null]);
+
+    // Read as UTC, the same two instants genuinely are different days.
+    const utc = build([ceremony, lateDinner], "UTC");
+    expect(utc.events.map((entry) => entry.dayLabel)).toEqual([
+      "Wednesday, March 31, 2027",
+      "Thursday, April 1, 2027",
+    ]);
+  });
+
+  it("labels the first event of a day even when input order is scrambled", () => {
+    const result = build([brunch, dinner, ceremony]);
+    expect(result.events.map((entry) => entry.id)).toEqual([
+      "Ceremony",
+      "Dinner",
+      "Brunch",
+    ]);
+    expect(result.events[0].dayLabel).toBe("Wednesday, March 31, 2027");
+    expect(result.events[2].dayLabel).toBe("Thursday, April 1, 2027");
+  });
+
+  it("gives a guest with no schedule nothing to label", () => {
+    const declined = buildItinerary({
+      guest: guest("DECLINED"),
+      events: [ceremony, brunch],
+      timezone: "America/New_York",
+    });
+    expect(declined.events).toEqual([]);
+  });
+});
