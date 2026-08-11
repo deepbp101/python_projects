@@ -54,6 +54,53 @@ export default async function DashboardPage({
     .filter((task) => !task.completedAt)
     .slice(0, 5);
 
+  /**
+   * The things asking for a decision, pulled to the top.
+   *
+   * Every one of these was already on the page, but each sat partway down its own
+   * card — so "one payment is three days late" was three scrolls below a
+   * countdown. Opening the app should answer "does anything need me?" before it
+   * answers anything else. When nothing does, the strip is absent rather than
+   * cheerfully empty: silence is the good outcome.
+   */
+  const overduePayments = reminders.filter((reminder) => reminder.isOverdue);
+  const attention = [
+    progress.overdue > 0 && {
+      key: "tasks",
+      href: `/w/${weddingId}/checklist`,
+      count: progress.overdue,
+      label: progress.overdue === 1 ? "task is overdue" : "tasks are overdue",
+      tone: "danger" as const,
+    },
+    overduePayments.length > 0 && {
+      key: "payments",
+      href: `/w/${weddingId}/budget`,
+      count: overduePayments.length,
+      label:
+        overduePayments.length === 1
+          ? "payment is past due"
+          : "payments are past due",
+      tone: "danger" as const,
+    },
+    budget.alerts.length > 0 && {
+      key: "budget",
+      href: `/w/${weddingId}/budget`,
+      count: budget.alerts.length,
+      label:
+        budget.alerts.length === 1
+          ? "category is near its cap"
+          : "categories are near their caps",
+      tone: "alert" as const,
+    },
+    rsvp.pending > 0 && {
+      key: "rsvp",
+      href: `/w/${weddingId}/guests`,
+      count: rsvp.pending,
+      label: rsvp.pending === 1 ? "guest hasn't replied" : "guests haven't replied",
+      tone: "alert" as const,
+    },
+  ].filter((entry): entry is Exclude<typeof entry, false> => Boolean(entry));
+
   return (
     <main className="mx-auto w-full max-w-5xl space-y-5 p-5 sm:p-8">
       <div>
@@ -65,6 +112,33 @@ export default async function DashboardPage({
           {wedding.location ? ` · ${wedding.location}` : ""}
         </p>
       </div>
+
+      {attention.length > 0 && (
+        <section aria-labelledby="needs-you">
+          <h2
+            id="needs-you"
+            className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint"
+          >
+            Needs you
+          </h2>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {attention.map((entry) => (
+              <li key={entry.key}>
+                <Link
+                  href={entry.href}
+                  className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 transition-colors hover:bg-surface-sunk"
+                >
+                  <Badge tone={entry.tone}>{entry.count}</Badge>
+                  <span className="flex-1 text-sm text-ink">{entry.label}</span>
+                  <span aria-hidden className="text-ink-faint">
+                    →
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <CountdownWidget weddingDate={wedding.weddingDate.toISOString()} />
 

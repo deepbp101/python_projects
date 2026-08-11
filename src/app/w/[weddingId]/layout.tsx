@@ -36,24 +36,43 @@ export default async function WorkspaceLayout({
   return (
     <RealtimeProvider weddingId={wedding.id} userId={user.id}>
       <div className="flex min-h-dvh flex-col lg:flex-row">
-        <aside className="border-b border-line bg-surface lg:w-64 lg:shrink-0 lg:border-b-0 lg:border-r">
-          <div className="px-5 py-4 lg:py-6">
+        {/*
+          The same four facts, stacked in the desktop sidebar but folded onto one
+          line on a phone. Stacked, they cost about a third of an 844px screen
+          before any content — a masthead that big is a poster, not a header.
+        */}
+        <aside className="sticky top-0 z-20 border-b border-line bg-surface lg:static lg:w-64 lg:shrink-0 lg:border-b-0 lg:border-r">
+          <div className="flex items-center gap-3 px-4 py-2.5 lg:block lg:px-5 lg:py-6">
             <Link
               href="/weddings"
-              className="text-[11px] font-medium uppercase tracking-[0.2em] text-clay"
+              aria-label="All weddings"
+              className="shrink-0 text-[11px] font-medium uppercase tracking-[0.2em] text-clay"
             >
-              ← All weddings
+              <span aria-hidden className="lg:hidden">
+                ←
+              </span>
+              <span className="hidden lg:inline">← All weddings</span>
             </Link>
-            <h1 className="mt-2 font-display text-xl leading-snug text-ink">
-              {wedding.title}
-            </h1>
-            <div className="mt-1 flex items-center gap-3">
-              <CountdownWidget
-                weddingDate={wedding.weddingDate.toISOString()}
-                compact
-              />
+
+            <div className="min-w-0 flex-1 lg:mt-2">
+              <h1 className="truncate font-display text-base leading-snug text-ink lg:text-xl">
+                {wedding.title}
+              </h1>
+              <div className="flex items-center gap-2 lg:mt-1">
+                <CountdownWidget
+                  weddingDate={wedding.weddingDate.toISOString()}
+                  compact
+                />
+                <span aria-hidden className="text-ink-faint lg:hidden">
+                  ·
+                </span>
+                <div className="lg:hidden">
+                  <PresenceBar />
+                </div>
+              </div>
             </div>
-            <div className="mt-2">
+
+            <div className="hidden lg:mt-2 lg:block">
               <PresenceBar />
             </div>
           </div>
