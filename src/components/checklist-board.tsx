@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   Card,
+  Disclosure,
   EmptyState,
   ErrorMessage,
   Field,
@@ -79,10 +80,19 @@ export function ChecklistBoard({
     return true;
   });
 
-  const grouped = MILESTONE_ORDER.map((milestone) => ({
-    milestone,
-    tasks: visible.filter((task) => task.milestone === milestone),
-  })).filter((group) => group.tasks.length > 0);
+  const grouped = MILESTONE_ORDER.map((milestone) => {
+    const groupTasks = visible.filter((task) => task.milestone === milestone);
+    const overdue = groupTasks.filter(isOverdue).length;
+    // "Soon" is thirty days: far enough ahead to book something, close enough
+    // that it is this month's problem rather than next year's.
+    const soon = groupTasks.filter(
+      (task) =>
+        !isDone(task) &&
+        task.dueDate !== null &&
+        daysBetween(today, new Date(task.dueDate)) <= 30,
+    ).length;
+    return { milestone, tasks: groupTasks, overdue, soon };
+  }).filter((group) => group.tasks.length > 0);
 
   async function toggle(task: ChecklistTask) {
     const next = !isDone(task);
@@ -172,20 +182,42 @@ export function ChecklistBoard({
       )}
 
       <div className="flex flex-wrap gap-2">
-        {(["open", "overdue", "done", "all"] as Filter[]).map((option) => (
-          <button
-            key={option}
-            onClick={() => setFilter(option)}
-            className={clsx(
-              "rounded-full px-3 py-1 text-sm capitalize transition-colors",
-              filter === option
-                ? "bg-ink text-canvas"
-                : "bg-surface text-ink-soft hover:bg-surface-sunk",
-            )}
-          >
-            {option}
-          </button>
-        ))}
+        {(["open", "overdue", "done", "all"] as Filter[]).map((option) => {
+          // Counted up front: a filter chip that might lead nowhere is a
+          // question, and answering it costs a tap and a disappointment.
+          const count = tasks.filter((task) => {
+            if (option === "open") return !isDone(task);
+            if (option === "done") return isDone(task);
+            if (option === "overdue") return isOverdue(task);
+            return true;
+          }).length;
+
+          return (
+            <button
+              key={option}
+              onClick={() => setFilter(option)}
+              disabled={count === 0}
+              className={clsx(
+                "rounded-full px-3 py-1 text-sm capitalize transition-colors",
+                filter === option
+                  ? "bg-ink text-canvas"
+                  : count === 0
+                    ? "cursor-not-allowed bg-surface text-ink-faint/60"
+                    : "bg-surface text-ink-soft hover:bg-surface-sunk",
+              )}
+            >
+              {option}
+              <span
+                className={clsx(
+                  "ml-1.5 tabular",
+                  filter === option ? "text-canvas/70" : "text-ink-faint",
+                )}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {grouped.length === 0 ? (
@@ -198,16 +230,31 @@ export function ChecklistBoard({
           }
         />
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-3">
           {grouped.map((group) => (
-            <section key={group.milestone}>
-              <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
-                {MILESTONE_LABELS[group.milestone]}
-              </h2>
-              <ul className="space-y-2">
-                {group.tasks.map((task) => (
-                  <li key={task.id}>
-                    <Card className="p-4">
+            <Card key={group.milestone} className="p-3 sm:p-4">
+              <Disclosure
+                // Open where something is already late or lands within the
+                // month; later milestones stay shut. Fifty-three tasks in one
+                // scroll made "what do I do next" a reading exercise.
+                defaultOpen={group.overdue > 0 || group.soon > 0}
+                summary={
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <h2 className="text-sm font-medium text-ink">
+                      {MILESTONE_LABELS[group.milestone]}
+                    </h2>
+                    <span className="tabular text-xs text-ink-faint">
+                      {group.tasks.length}
+                    </span>
+                    {group.overdue > 0 && (
+                      <Badge tone="danger">{group.overdue} overdue</Badge>
+                    )}
+                  </div>
+                }
+              >
+                <ul className="mt-3 divide-y divide-line border-t border-line">
+                  {group.tasks.map((task) => (
+                    <li key={task.id} className="py-3">
                       <div className="flex items-start gap-3">
                         <input
                           type="checkbox"
@@ -262,11 +309,11 @@ export function ChecklistBoard({
                           </button>
                         )}
                       </div>
-                    </Card>
-                  </li>
-                ))}
-              </ul>
-            </section>
+                    </li>
+                  ))}
+                </ul>
+              </Disclosure>
+            </Card>
           ))}
         </div>
       )}

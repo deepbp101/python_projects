@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   CardTitle,
+  Disclosure,
   EmptyState,
   ErrorMessage,
   Field,
@@ -76,6 +77,9 @@ export function BudgetBoard({
   const [addingCategory, setAddingCategory] = useState(false);
 
   const refresh = () => startTransition(() => router.refresh());
+
+  /** Payment ids that are overdue or due within the reminder window. */
+  const dueSoon = new Set(reminders.map((reminder) => reminder.paymentId));
 
   async function markPaid(paymentId: string, paid: boolean) {
     setError(null);
@@ -220,80 +224,116 @@ export function BudgetBoard({
             const categoryItems = items.filter(
               (item) => item.categoryId === category.id,
             );
+            const owing = categoryItems.filter((item) =>
+              item.payments.some((payment) => !payment.paidAt),
+            ).length;
+            // "Something is unpaid" is the normal state of a wedding budget and
+            // opened almost every category, which is the same as not collapsing
+            // at all. Only a payment that is late or lands within the month
+            // counts as needing attention.
+            const pressing = categoryItems.some((item) =>
+              item.payments.some((payment) => dueSoon.has(payment.id)),
+            );
+
             return (
               <Card key={category.id}>
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: category.color }}
-                    />
-                    <h2 className="font-display text-lg text-ink">
-                      {category.name}
-                    </h2>
-                    {category.status !== "OK" && (
-                      <Badge tone={category.status === "OVER" ? "danger" : "alert"}>
-                        {category.status === "OVER"
-                          ? "Over budget"
-                          : "Nearing limit"}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="tabular text-sm text-ink-soft">
-                    {formatMoney(category.paidAmount, currency)} /{" "}
-                    {formatMoney(category.plannedAmount, currency)}
-                  </p>
-                </div>
+                <Disclosure
+                  // Open only where there is something to do: over its cap,
+                  // nearing it, or still owing money. Eleven categories fully
+                  // expanded made the page seven thousand pixels tall, and the
+                  // one that was over budget looked exactly like the ten that
+                  // were fine. The bar below stays visible either way, so a
+                  // closed category is still a health reading.
+                  defaultOpen={category.status !== "OK" || pressing}
+                  summary={
+                    <>
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            aria-hidden
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          <h2 className="font-display text-lg text-ink">
+                            {category.name}
+                          </h2>
+                          {category.status !== "OK" && (
+                            <Badge
+                              tone={
+                                category.status === "OVER" ? "danger" : "alert"
+                              }
+                            >
+                              {category.status === "OVER"
+                                ? "Over budget"
+                                : "Nearing limit"}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="tabular text-sm text-ink-soft">
+                          {formatMoney(category.paidAmount, currency)} /{" "}
+                          {formatMoney(category.plannedAmount, currency)}
+                        </p>
+                      </div>
 
-                <div className="mt-3">
-                  <ProgressBar
-                    value={category.percentUsed}
-                    tone={TONE[category.status]}
-                    label={`${category.name} budget used`}
-                  />
-                </div>
+                      <div className="mt-2">
+                        <ProgressBar
+                          value={category.percentUsed}
+                          tone={TONE[category.status]}
+                          label={`${category.name} budget used`}
+                        />
+                      </div>
 
-                {categoryItems.length > 0 && (
-                  <ul className="mt-4 space-y-3">
-                    {categoryItems.map((item) => (
-                      <BudgetItemRow
-                        key={item.id}
-                        weddingId={weddingId}
-                        item={item}
-                        currency={currency}
-                        canEdit={canEdit}
-                        onChanged={refresh}
-                        onMarkPaid={markPaid}
-                        onDelete={removeItem}
-                      />
-                    ))}
-                  </ul>
-                )}
+                      <p className="mt-1.5 text-xs text-ink-faint">
+                        {categoryItems.length === 0
+                          ? "No line items yet"
+                          : `${categoryItems.length} ${
+                              categoryItems.length === 1 ? "item" : "items"
+                            }${owing > 0 ? ` · ${owing} still to pay` : " · all paid"}`}
+                      </p>
+                    </>
+                  }
+                >
+                  {categoryItems.length > 0 && (
+                    <ul className="mt-4 space-y-3">
+                      {categoryItems.map((item) => (
+                        <BudgetItemRow
+                          key={item.id}
+                          weddingId={weddingId}
+                          item={item}
+                          currency={currency}
+                          canEdit={canEdit}
+                          onChanged={refresh}
+                          onMarkPaid={markPaid}
+                          onDelete={removeItem}
+                        />
+                      ))}
+                    </ul>
+                  )}
 
-                {canEdit && (
-                  <div className="mt-4">
-                    {addingItemFor === category.id ? (
-                      <AddItemForm
-                        weddingId={weddingId}
-                        categoryId={category.id}
-                        onDone={() => {
-                          setAddingItemFor(null);
-                          refresh();
-                        }}
-                        onCancel={() => setAddingItemFor(null)}
-                      />
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        className="px-2 py-1 text-xs"
-                        onClick={() => setAddingItemFor(category.id)}
-                      >
-                        + Add line item
-                      </Button>
-                    )}
-                  </div>
-                )}
+                  {canEdit && (
+                    <div className="mt-4">
+                      {addingItemFor === category.id ? (
+                        <AddItemForm
+                          weddingId={weddingId}
+                          categoryId={category.id}
+                          onDone={() => {
+                            setAddingItemFor(null);
+                            refresh();
+                          }}
+                          onCancel={() => setAddingItemFor(null)}
+                        />
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          className="px-2 py-1 text-xs"
+                          onClick={() => setAddingItemFor(category.id)}
+                        >
+                          + Add line item
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </Disclosure>
               </Card>
             );
           })}

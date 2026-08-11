@@ -226,3 +226,54 @@ export function ErrorMessage({ children }: { children?: ReactNode }) {
     </p>
   );
 }
+
+/**
+ * A collapsible section.
+ *
+ * Native `<details>` rather than a `useState` toggle: it is keyboard operable
+ * and findable by in-page search for free, and it works before hydration — which
+ * matters on the two longest pages in the app, where the alternative is a wall
+ * of content while JavaScript loads.
+ *
+ * `summary` stays visible when closed, so a collapsed section is still a useful
+ * row rather than a mystery. That is what makes closing things by default
+ * defensible: nothing is hidden except detail.
+ */
+export function Disclosure({
+  summary,
+  defaultOpen = false,
+  className,
+  children,
+}: {
+  summary: ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <details open={defaultOpen} className={clsx("group", className)}>
+      {/*
+        Aligned to the top rather than centred: a summary can be three rows tall
+        (a budget category carries a name, amounts and a bar), and a centred
+        chevron drifts down beside the bar instead of sitting with the title it
+        belongs to. On a one-line summary the offset reads as centred anyway.
+      */}
+      <summary className="flex cursor-pointer list-none items-start gap-3 rounded-xl px-1 py-1 transition-colors hover:bg-surface-sunk/60 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1">{summary}</span>
+        <svg
+          aria-hidden
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="mt-1 h-4 w-4 shrink-0 text-ink-faint transition-transform group-open:rotate-180"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </summary>
+      {children}
+    </details>
+  );
+}
