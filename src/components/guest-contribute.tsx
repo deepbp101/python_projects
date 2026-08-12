@@ -1,7 +1,8 @@
 "use client";
 
+import clsx from "clsx";
 import { useRef, useState } from "react";
-import { Button, ErrorMessage, Input, Select, Textarea } from "@/components/ui";
+import { Button, ErrorMessage, Input, Textarea } from "@/components/ui";
 import { apiUpload, errorMessage } from "@/lib/client/api";
 import {
   GUEST_BOOK_KIND_LABELS,
@@ -35,14 +36,113 @@ function Thanks({ pending, onAgain }: { pending: boolean; onAgain: () => void })
   );
 }
 
+
+/**
+ * The file picker guests actually tap.
+ *
+ * A bare `<input type="file">` renders as the browser's "Choose File / No file
+ * chosen" — a small grey control, and on this page it is the *only* thing a
+ * guest came to do, reached by scanning a code at a reception while holding a
+ * drink. So: a full-width target, and once something is picked, a preview, so
+ * they can see they grabbed the right photo before sending it to someone's
+ * wedding.
+ */
+function FilePicker({
+  inputRef,
+  accept,
+  capture,
+  file,
+  preview,
+  onPick,
+  idle,
+  hint,
+  icon = "camera",
+}: {
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  accept: string;
+  capture?: "environment" | "user";
+  file: File | null;
+  preview: string | null;
+  onPick: (file: File | null) => void;
+  idle: string;
+  hint: string;
+  /** Matches what is being captured — a camera over "record a voice note" lies. */
+  icon?: "camera" | "mic" | "video";
+}) {
+  return (
+    <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line-strong bg-surface-sunk px-4 py-6 text-center transition-colors hover:border-clay hover:bg-clay-soft/40">
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        capture={capture}
+        onChange={(event) => onPick(event.target.files?.[0] ?? null)}
+        className="sr-only"
+      />
+
+      {preview ? (
+        // eslint-disable-next-line @next/next/no-img-element -- a local object URL, never an optimisable asset
+        <img
+          src={preview}
+          alt=""
+          className="max-h-40 w-auto rounded-xl object-contain"
+        />
+      ) : (
+        <svg
+          aria-hidden
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-8 w-8 text-clay"
+        >
+          {icon === "mic" ? (
+            <>
+              <rect x="9" y="3" width="6" height="11" rx="3" />
+              <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" />
+              <path d="M12 18v3M9 21h6" />
+            </>
+          ) : icon === "video" ? (
+            <>
+              <rect x="2.5" y="6.5" width="13" height="11" rx="2" />
+              <path d="m15.5 11 6-3.5v9l-6-3.5z" />
+            </>
+          ) : (
+            <>
+              <path d="M3.5 8.5h3l1.5-2.5h8l1.5 2.5h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z" />
+              <circle cx="12" cy="13.5" r="3.5" />
+            </>
+          )}
+        </svg>
+      )}
+
+      <span className="text-sm font-medium text-ink">
+        {file ? file.name : idle}
+      </span>
+      <span className="text-xs text-ink-faint">{file ? "Tap to change" : hint}</span>
+    </label>
+  );
+}
+
 export function PhotoUploadForm({ slug }: { slug: string }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploaderName, setUploaderName] = useState("");
   const [caption, setCaption] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const [done, setDone] = useState<{ pending: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Object URLs are revoked as they are replaced rather than in an effect, so
+  // there is no window where a stale one is still allocated.
+  function pick(next: File | null) {
+    if (preview) URL.revokeObjectURL(preview);
+    setFile(next);
+    setPreview(next ? URL.createObjectURL(next) : null);
+  }
 
   if (done) {
     return (
@@ -50,7 +150,7 @@ export function PhotoUploadForm({ slug }: { slug: string }) {
         pending={done.pending}
         onAgain={() => {
           setDone(null);
-          setFile(null);
+          pick(null);
           setCaption("");
           if (fileInput.current) fileInput.current.value = "";
         }}
@@ -91,14 +191,15 @@ export function PhotoUploadForm({ slug }: { slug: string }) {
       onSubmit={submit}
       className="space-y-3 rounded-2xl border border-line bg-surface p-5"
     >
-      <input
-        ref={fileInput}
-        type="file"
+      <FilePicker
+        inputRef={fileInput}
         accept="image/jpeg,image/png,image/webp,image/gif"
         capture="environment"
-        onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-        aria-label="Choose a photo"
-        className="block w-full text-sm text-ink-soft file:mr-3 file:rounded-full file:border-0 file:bg-clay file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
+        file={file}
+        preview={preview}
+        onPick={pick}
+        idle="Add a photo"
+        hint="Your camera or camera roll"
       />
 
       <Input
@@ -191,21 +292,39 @@ export function GuestBookForm({ slug }: { slug: string }) {
       onSubmit={submit}
       className="space-y-3 rounded-2xl border border-line bg-surface p-5"
     >
-      <Select
-        value={kind}
-        onChange={(event) => {
-          setKind(event.target.value as GuestBookKind);
-          setFile(null);
-          if (fileInput.current) fileInput.current.value = "";
-        }}
-        aria-label="How would you like to leave a message?"
-      >
-        {(Object.keys(GUEST_BOOK_KIND_LABELS) as GuestBookKind[]).map((option) => (
-          <option key={option} value={option}>
-            {GUEST_BOOK_KIND_LABELS[option]}
-          </option>
-        ))}
-      </Select>
+      {/*
+        Three visible choices rather than a dropdown. Couples put notes like
+        "we'd rather hear your voice than read your handwriting" on this page,
+        and a closed <select> reading "Written" answers that with the one option
+        they were trying to talk you out of. All three, one tap each.
+      */}
+      <fieldset>
+        <legend className="sr-only">How would you like to leave a message?</legend>
+        <div className="flex gap-1 rounded-xl bg-surface-sunk p-1">
+          {(Object.keys(GUEST_BOOK_KIND_LABELS) as GuestBookKind[]).map(
+            (option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={kind === option}
+                onClick={() => {
+                  setKind(option);
+                  setFile(null);
+                  if (fileInput.current) fileInput.current.value = "";
+                }}
+                className={clsx(
+                  "min-h-[40px] flex-1 rounded-lg px-2 text-sm transition-colors",
+                  kind === option
+                    ? "bg-surface font-medium text-ink shadow-sm"
+                    : "text-ink-soft hover:text-ink",
+                )}
+              >
+                {GUEST_BOOK_KIND_LABELS[option]}
+              </button>
+            ),
+          )}
+        </div>
+      </fieldset>
 
       <Input
         required
@@ -227,14 +346,18 @@ export function GuestBookForm({ slug }: { slug: string }) {
         />
       ) : (
         <>
-          <input
-            ref={fileInput}
-            type="file"
+          <FilePicker
+            inputRef={fileInput}
             accept={kind === "VOICE" ? "audio/*" : "video/*"}
             capture={kind === "VIDEO" ? "user" : undefined}
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            aria-label={kind === "VOICE" ? "Record or choose audio" : "Record or choose video"}
-            className="block w-full text-sm text-ink-soft file:mr-3 file:rounded-full file:border-0 file:bg-clay file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
+            file={file}
+            // No preview for a recording: an audio file has no thumbnail, and a
+            // video poster costs a decode for something the guest just filmed.
+            preview={null}
+            onPick={setFile}
+            icon={kind === "VOICE" ? "mic" : "video"}
+            idle={kind === "VOICE" ? "Record a message" : "Record a video"}
+            hint="Your phone will offer its recorder"
           />
           <Textarea
             value={message}
