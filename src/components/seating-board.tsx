@@ -348,11 +348,15 @@ export function SeatingBoard({
                   aria-label={`${table.name}, ${seated.length} of ${table.capacity} seats taken`}
                   className={clsx(
                     "absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center border-2 text-center transition-colors",
+                    // Smaller on a phone. Positions are percentages, so on a
+                    // ~350px canvas three tables across sit about 87px apart —
+                    // and at the old 80px these overlapped into each other.
+                    // They still clear the 44px touch minimum.
                     table.shape === "ROUND"
-                      ? "h-20 w-20 rounded-full sm:h-24 sm:w-24"
+                      ? "h-14 w-14 rounded-full sm:h-24 sm:w-24"
                       : table.shape === "HEAD"
-                        ? "h-14 w-36 rounded-xl sm:h-16 sm:w-44"
-                        : "h-16 w-28 rounded-lg sm:h-20 sm:w-32",
+                        ? "h-12 w-24 rounded-xl sm:h-16 sm:w-44"
+                        : "h-12 w-20 rounded-lg sm:h-20 sm:w-32",
                     isOver
                       ? "border-danger bg-danger-soft"
                       : isFull
@@ -364,7 +368,7 @@ export function SeatingBoard({
                   )}
                   style={{ left: `${position.x}%`, top: `${position.y}%` }}
                 >
-                  <span className="px-1 text-[11px] font-medium leading-tight text-ink">
+                  <span className="px-1 text-[10px] font-medium leading-tight text-ink sm:text-[11px]">
                     {table.name}
                   </span>
                   <span className="tabular text-[10px] text-ink-faint">

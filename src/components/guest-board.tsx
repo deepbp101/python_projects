@@ -7,7 +7,7 @@ import {
   Badge,
   Button,
   Card,
-  CardTitle,
+  Disclosure,
   EmptyState,
   ErrorMessage,
   Field,
@@ -181,9 +181,25 @@ export function GuestBoard({
         </div>
       </Card>
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardTitle>Meal choices</CardTitle>
+      {/*
+        Catering reference, not the day-to-day task. Both were stacked full
+        height above the list, so on a phone you scrolled past two summaries
+        every time you came to look someone up. Closed by default; the headline
+        count stays on the summary line so nothing is lost by leaving them shut.
+      */}
+      <div className="grid grid-cols-2 gap-3">
+        <Card className="p-3 sm:p-4">
+          <Disclosure
+            summary={
+              <div className="flex items-baseline gap-2">
+                <h2 className="font-display text-base text-ink sm:text-lg">Meals</h2>
+                <span className="tabular text-xs text-ink-faint">
+                  {meals.length}
+                </span>
+              </div>
+            }
+          >
+          <div className="mt-3">
           {meals.length === 0 ? (
             <p className="text-sm text-ink-soft">No meal options set up yet.</p>
           ) : (
@@ -208,10 +224,22 @@ export function GuestBoard({
           <p className="mt-3 text-xs text-ink-faint">
             Counted for attending guests only.
           </p>
+          </div>
+          </Disclosure>
         </Card>
 
-        <Card>
-          <CardTitle>Dietary needs</CardTitle>
+        <Card className="p-3 sm:p-4">
+          <Disclosure
+            summary={
+              <div className="flex items-baseline gap-2">
+                <h2 className="font-display text-base text-ink sm:text-lg">Dietary</h2>
+                <span className="tabular text-xs text-ink-faint">
+                  {dietary.length}
+                </span>
+              </div>
+            }
+          >
+          <div className="mt-3">
           {dietary.length === 0 ? (
             <p className="text-sm text-ink-soft">
               Nothing noted yet for attending guests.
@@ -228,6 +256,8 @@ export function GuestBoard({
               ))}
             </ul>
           )}
+          </div>
+          </Disclosure>
         </Card>
       </div>
 
@@ -261,10 +291,17 @@ export function GuestBoard({
           className="w-full sm:w-56"
           aria-label="Search guests"
         />
+        {/*
+          Paired on one row on a phone. Each control carries w-full from the
+          shared control class, so a width utility here loses to it depending on
+          stylesheet order; a wrapper that becomes `contents` at sm keeps the
+          desktop row exactly as it was without that fight.
+        */}
+        <div className="flex w-full gap-2 sm:contents">
         <Select
           value={tagFilter}
           onChange={(event) => setTagFilter(event.target.value)}
-          className="w-full sm:w-40"
+          className="sm:w-40"
           aria-label="Filter by group"
         >
           <option value="">All groups</option>
@@ -279,7 +316,7 @@ export function GuestBoard({
           onChange={(event) =>
             setStatusFilter(event.target.value as RsvpStatus | "")
           }
-          className="w-full sm:w-40"
+          className="sm:w-40"
           aria-label="Filter by RSVP"
         >
           <option value="">Any RSVP</option>
@@ -289,6 +326,7 @@ export function GuestBoard({
             </option>
           ))}
         </Select>
+        </div>
       </div>
 
       {visible.length === 0 ? (
@@ -301,12 +339,14 @@ export function GuestBoard({
           }
         />
       ) : (
-        <ul className="space-y-2">
+        // One card holding divided rows rather than a card per guest: with
+        // twenty-five guests the gaps and borders alone were most of the page.
+        <Card className="p-3 sm:p-4">
+        <ul className="divide-y divide-line">
           {visible.map((guest) => {
             const status = guest.rsvp?.status ?? "PENDING";
             return (
-              <li key={guest.id}>
-                <Card className="p-4">
+              <li key={guest.id} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-baseline gap-2">
@@ -407,11 +447,11 @@ export function GuestBoard({
                       )}
                     </div>
                   </div>
-                </Card>
               </li>
             );
           })}
         </ul>
+        </Card>
       )}
     </main>
   );
