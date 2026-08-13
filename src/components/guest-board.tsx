@@ -124,6 +124,11 @@ export function GuestBoard({
     }
   }
 
+  // Before the first guest exists, the summary, the catering panels and the
+  // search row are all reporting on nothing — five controls standing between a
+  // couple and the one button they came for. They appear with the list.
+  const hasGuests = guests.length > 0;
+
   return (
     <main className="mx-auto w-full max-w-5xl space-y-5 p-5 sm:p-8">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -157,6 +162,7 @@ export function GuestBoard({
 
       <ErrorMessage>{error}</ErrorMessage>
 
+      {hasGuests && (
       <Card>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Stat label="Invited" value={counts.totalInvited} />
@@ -180,13 +186,15 @@ export function GuestBoard({
           />
         </div>
       </Card>
+      )}
 
-      {/*
+      {hasGuests && (
+      /*
         Catering reference, not the day-to-day task. Both were stacked full
         height above the list, so on a phone you scrolled past two summaries
         every time you came to look someone up. Closed by default; the headline
         count stays on the summary line so nothing is lost by leaving them shut.
-      */}
+      */
       <div className="grid grid-cols-2 gap-3">
         <Card className="p-3 sm:p-4">
           <Disclosure
@@ -260,6 +268,7 @@ export function GuestBoard({
           </Disclosure>
         </Card>
       </div>
+      )}
 
       {panel === "add" && canEdit && (
         <AddGuestForm
@@ -283,6 +292,7 @@ export function GuestBoard({
         />
       )}
 
+      {hasGuests && (
       <div className="flex flex-wrap gap-2">
         <Input
           value={search}
@@ -328,6 +338,7 @@ export function GuestBoard({
         </Select>
         </div>
       </div>
+      )}
 
       {visible.length === 0 ? (
         <EmptyState

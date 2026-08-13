@@ -218,31 +218,51 @@ export default async function DashboardPage({
               Budget
             </CardTitle>
 
-            <div className="flex items-end justify-between gap-4">
-              <Stat
-                label="Spent"
-                value={formatMoney(budget.totalPaid, wedding.currency)}
-                hint={`of ${formatMoney(budget.totalBudget, wedding.currency)}`}
-              />
-              <Stat
-                label="Still owed"
-                value={formatMoney(budget.totalOutstanding, wedding.currency)}
-              />
-            </div>
+            {/*
+              A couple who skipped the optional budget at setup would otherwise
+              get four zeros and an empty bar here — a card reporting confidently
+              on nothing. Say what is missing instead.
+            */}
+            {budget.totalBudget === 0 && categories.length === 0 ? (
+              <p className="text-sm text-ink-soft">
+                No budget set yet.{" "}
+                <Link
+                  href={`/w/${weddingId}/budget`}
+                  className="text-clay-dark underline underline-offset-2"
+                >
+                  Set a total
+                </Link>{" "}
+                and we&rsquo;ll split it across the usual categories.
+              </p>
+            ) : (
+              <>
+                <div className="flex items-end justify-between gap-4">
+                  <Stat
+                    label="Spent"
+                    value={formatMoney(budget.totalPaid, wedding.currency)}
+                    hint={`of ${formatMoney(budget.totalBudget, wedding.currency)}`}
+                  />
+                  <Stat
+                    label="Still owed"
+                    value={formatMoney(budget.totalOutstanding, wedding.currency)}
+                  />
+                </div>
 
-            <div className="mt-3">
-              <ProgressBar
-                value={budget.percentUsed}
-                tone={
-                  budget.status === "OVER"
-                    ? "danger"
-                    : budget.status === "WARNING"
-                      ? "alert"
-                      : "clay"
-                }
-                label="Budget used"
-              />
-            </div>
+                <div className="mt-3">
+                  <ProgressBar
+                    value={budget.percentUsed}
+                    tone={
+                      budget.status === "OVER"
+                        ? "danger"
+                        : budget.status === "WARNING"
+                          ? "alert"
+                          : "clay"
+                    }
+                    label="Budget used"
+                  />
+                </div>
+              </>
+            )}
 
             {budget.alerts.length > 0 && (
               <ul className="mt-4 space-y-1.5 text-sm">

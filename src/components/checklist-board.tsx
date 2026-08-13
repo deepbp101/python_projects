@@ -94,6 +94,14 @@ export function ChecklistBoard({
     return { milestone, tasks: groupTasks, overdue, soon };
   }).filter((group) => group.tasks.length > 0);
 
+  // A couple who booked a year out has nothing overdue and nothing due this
+  // month, so the rule below would close every milestone and hand them a stack
+  // of shut drawers on their first visit. When nothing is pressing, open the
+  // earliest milestone: it is where the work starts anyway.
+  const anyPressing = grouped.some(
+    (group) => group.overdue > 0 || group.soon > 0,
+  );
+
   async function toggle(task: ChecklistTask) {
     const next = !isDone(task);
     setOptimistic((current) => ({ ...current, [task.id]: next }));
@@ -231,13 +239,17 @@ export function ChecklistBoard({
         />
       ) : (
         <div className="space-y-3">
-          {grouped.map((group) => (
+          {grouped.map((group, index) => (
             <Card key={group.milestone} className="p-3 sm:p-4">
               <Disclosure
                 // Open where something is already late or lands within the
                 // month; later milestones stay shut. Fifty-three tasks in one
                 // scroll made "what do I do next" a reading exercise.
-                defaultOpen={group.overdue > 0 || group.soon > 0}
+                defaultOpen={
+                  group.overdue > 0 ||
+                  group.soon > 0 ||
+                  (!anyPressing && index === 0)
+                }
                 summary={
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <h2 className="text-sm font-medium text-ink">
