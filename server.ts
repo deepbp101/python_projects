@@ -40,8 +40,21 @@ function readCookie(header: string | undefined, name: string): string | null {
 
 type SocketUser = { id: string; name: string };
 
-async function authenticate(cookieHeader?: string): Promise<SocketUser | null> {
-  const token = readCookie(cookieHeader, SESSION_COOKIE);
+/**
+ * Resolves the socket's user from either delivery mechanism.
+ *
+ * The browser hands its session over automatically in the handshake cookie
+ * header. The native app has no cookie to send, so it puts the same token in
+ * `auth` when it connects: `io(url, { auth: { token } })`.
+ */
+async function authenticate(
+  cookieHeader?: string,
+  handshakeToken?: unknown,
+): Promise<SocketUser | null> {
+  const token =
+    (typeof handshakeToken === "string" && handshakeToken.length > 0
+      ? handshakeToken
+      : null) ?? readCookie(cookieHeader, SESSION_COOKIE);
   if (!token) return null;
 
   const session = await prisma.session.findUnique({
@@ -81,7 +94,10 @@ app.prepare().then(() => {
 
   io.use(async (socket, nextFn) => {
     try {
-      const user = await authenticate(socket.handshake.headers.cookie);
+      const user = await authenticate(
+        socket.handshake.headers.cookie,
+        socket.handshake.auth?.token,
+      );
       if (!user) return nextFn(new Error("unauthorized"));
       socket.data.user = user;
       nextFn();

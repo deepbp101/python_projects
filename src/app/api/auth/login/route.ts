@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { loginSchema } from "@/lib/validation";
 
 export const POST = route(async (request: Request) => {
-  const { email, password } = await parseBody(request, loginSchema);
+  const { email, password, client } = await parseBody(request, loginSchema);
 
   const user = await prisma.user.findUnique({ where: { email } });
 
@@ -20,9 +20,18 @@ export const POST = route(async (request: Request) => {
   }
 
   await pruneExpiredSessions();
-  await createSession(user.id, {
+  const token = await createSession(user.id, {
     userAgent: request.headers.get("user-agent"),
+    setCookie: client === "web",
   });
 
-  return ok({ id: user.id, email: user.email, name: user.name });
+  return ok({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    // Only ever returned to a client that asked for it. The web app is left
+    // with no way to read its own session token, which is the point of the
+    // httpOnly cookie.
+    ...(client === "native" ? { token } : {}),
+  });
 });

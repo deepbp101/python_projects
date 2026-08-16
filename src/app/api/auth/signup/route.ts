@@ -5,7 +5,10 @@ import { prisma } from "@/lib/db";
 import { signupSchema } from "@/lib/validation";
 
 export const POST = route(async (request: Request) => {
-  const { name, email, password } = await parseBody(request, signupSchema);
+  const { name, email, password, client } = await parseBody(
+    request,
+    signupSchema,
+  );
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -22,9 +25,18 @@ export const POST = route(async (request: Request) => {
     data: { userId: user.id },
   });
 
-  await createSession(user.id, {
+  const token = await createSession(user.id, {
     userAgent: request.headers.get("user-agent"),
+    setCookie: client === "web",
   });
 
-  return ok({ id: user.id, email: user.email, name: user.name }, 201);
+  return ok(
+    {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      ...(client === "native" ? { token } : {}),
+    },
+    201,
+  );
 });

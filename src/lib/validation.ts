@@ -55,6 +55,19 @@ function partialForUpdate<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
 // Auth
 // ---------------------------------------------------------------------------
 
+/**
+ * Which kind of client is signing in.
+ *
+ * "web" is the default and keeps the current behaviour exactly: an httpOnly
+ * cookie, and no token anywhere JavaScript can reach it. "native" asks for the
+ * token in the response body instead, because a phone app has no cookie jar to
+ * put it in — it goes to the device keychain.
+ *
+ * Opt-in rather than sniffed from the User-Agent, so the decision is the
+ * caller's and is visible in the request.
+ */
+const client = z.enum(["web", "native"]).default("web");
+
 export const signupSchema = z.object({
   name: trimmed(120),
   email: z.email().max(255).toLowerCase(),
@@ -62,11 +75,13 @@ export const signupSchema = z.object({
     .string()
     .min(10, "Use at least 10 characters.")
     .max(200, "That password is too long."),
+  client,
 });
 
 export const loginSchema = z.object({
   email: z.email().max(255).toLowerCase(),
   password: z.string().min(1).max(200),
+  client,
 });
 
 // ---------------------------------------------------------------------------
