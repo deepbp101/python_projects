@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The native app: React Native rules, not Next's.
+    "mobile/**",
   ]),
 ]);
 

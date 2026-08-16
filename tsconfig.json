@@ -30,5 +30,8 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // mobile/ is a separate app with its own tsconfig, its own `~/*` alias and
+  // React Native's types. Typechecking it from here resolves neither, and it is
+  // covered by `npm run typecheck` inside mobile/.
+  "exclude": ["node_modules", "mobile"]
 }

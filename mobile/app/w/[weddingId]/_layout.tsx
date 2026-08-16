@@ -1,15 +1,21 @@
 import { Tabs } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, space, type } from "~/theme";
-import { BudgetIcon, ChecklistIcon, HomeIcon } from "~/components/icons";
+import {
+  BudgetIcon,
+  ChecklistIcon,
+  GuestsIcon,
+  HomeIcon,
+  SeatingIcon,
+} from "~/components/icons";
 
 /**
- * Three tabs, not eleven.
+ * Five tabs, not eleven.
  *
  * The web nav learned this the hard way: eleven destinations across a phone
- * gave 32px targets with labels running together. Here the first build covers
- * the three screens a couple opens daily, and the rest arrive behind a "More"
- * tab rather than by squeezing the bar.
+ * gave 32px targets with labels running together. Five is where this bar stops
+ * — at 390px that is 78px per target, still comfortably past the 44px minimum.
+ * The remaining six screens go behind a More sheet rather than a sixth tab.
  */
 export default function WorkspaceLayout() {
   const insets = useSafeAreaInsets();
@@ -53,6 +59,20 @@ export default function WorkspaceLayout() {
         options={{
           title: "Budget",
           tabBarIcon: ({ color }) => <BudgetIcon color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="guests"
+        options={{
+          title: "Guests",
+          tabBarIcon: ({ color }) => <GuestsIcon color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="seating"
+        options={{
+          title: "Seating",
+          tabBarIcon: ({ color }) => <SeatingIcon color={color} />,
         }}
       />
     </Tabs>

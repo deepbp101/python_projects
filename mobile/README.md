@@ -83,10 +83,22 @@ there, and neither affects a real phone:
 
 ## What is here so far
 
-Sign-in and sign-up, the wedding picker, and three tabs: dashboard with the live
-countdown, checklist with optimistic ticking, and budget with collapsible
-categories and upcoming payments. The other eight workspace screens are still
-web-only.
+Sign-in and sign-up, the wedding picker, and five tabs:
+
+- **Home** — live countdown, checklist progress, budget summary
+- **Tasks** — milestones, optimistic ticking
+- **Budget** — collapsible categories, upcoming payments
+- **Guests** — RSVP counts, search and filters, tap a reply to change it
+- **Seating** — tap a guest, tap a table
+
+Six screens remain web-only: vendors, mood board, website builder, photos and
+guest book, the assistant, and settings.
+
+Two things stay on the web deliberately rather than by omission. Laying out the
+room — dragging tables around a floor plan — wants a screen bigger than a
+fingertip, so the phone seats people into tables that already exist. And guests
+are added and imported on the web; the phone is for checking and updating them,
+which is what you do at a venue.
 
 ## Notes
 
