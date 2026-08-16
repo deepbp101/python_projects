@@ -68,6 +68,19 @@ npx expo start
 Scan the QR code with Expo Go. Sign in with any account from the web app's seed
 (`sam@example.com` / `wedding-demo-2026`).
 
+### Previewing in a browser
+
+`npx expo start --web` renders the same components through react-native-web,
+which is a fast way to iterate without a device. Two things behave differently
+there, and neither affects a real phone:
+
+- **CORS.** A browser blocks `localhost:8081 → localhost:3000`; React Native's
+  `fetch` does not enforce CORS at all. The backend is deliberately left alone —
+  launch the browser with `--disable-web-security` instead of widening the API.
+- **The keychain.** `expo-secure-store` has no web implementation, so the token
+  falls back to `localStorage` on web only. Fine for a preview, and never used
+  on a device.
+
 ## What is here so far
 
 Sign-in and sign-up, the wedding picker, and three tabs: dashboard with the live

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -69,8 +69,17 @@ export default function Checklist() {
   // Same rule as the web checklist, including its day-one case: open where
   // something is late, and otherwise open the first group rather than handing
   // someone a stack of shut drawers.
-  const firstPressing = groups.find((group) => group.overdue > 0)?.milestone;
-  const expanded = open ?? firstPressing ?? groups[0]?.milestone ?? null;
+  //
+  // Applied once, when the tasks first arrive, rather than on every render.
+  // Recomputing it live meant ticking the last overdue task in a group dropped
+  // its overdue count to zero and slammed the group shut under the finger that
+  // just tapped it.
+  useEffect(() => {
+    if (open !== null || groups.length === 0) return;
+    setOpen(groups.find((group) => group.overdue > 0)?.milestone ?? groups[0].milestone);
+  }, [groups, open]);
+
+  const expanded = open;
 
   const done = tasks.filter(isDone).length;
 

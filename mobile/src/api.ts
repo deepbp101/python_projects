@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 /**
  * The API client.
@@ -16,19 +17,32 @@ export const API_URL: string =
 const TOKEN_KEY = "wp_session_token";
 
 /**
- * The token lives in the device keychain, not AsyncStorage.
+ * On a device the token lives in the keychain, not AsyncStorage.
  *
  * AsyncStorage is a plain unencrypted file — readable on a rooted or jailbroken
  * device, and swept up in a filesystem backup. A session token is a password
  * with a thirty-day life, so it goes where passwords go. Everything else the
  * app caches is workspace data the user already has, and that does live in
  * AsyncStorage.
+ *
+ * `expo-secure-store` has no web implementation, and calling it under
+ * `expo start --web` throws. Web here is a development preview only — the
+ * shipped web product is the Next.js app next door, which uses an httpOnly
+ * cookie and never touches this — so the fallback is localStorage, which is
+ * fine for a preview and would not be acceptable for anything shipped.
  */
+const onWeb = Platform.OS === "web";
+
 export async function readToken(): Promise<string | null> {
+  if (onWeb) return globalThis.localStorage?.getItem(TOKEN_KEY) ?? null;
   return SecureStore.getItemAsync(TOKEN_KEY);
 }
 
 export async function writeToken(token: string): Promise<void> {
+  if (onWeb) {
+    globalThis.localStorage?.setItem(TOKEN_KEY, token);
+    return;
+  }
   await SecureStore.setItemAsync(TOKEN_KEY, token, {
     // Available whenever the device has been unlocked once since boot, so a
     // background refresh does not fail on a locked phone, and never migrated
@@ -38,6 +52,10 @@ export async function writeToken(token: string): Promise<void> {
 }
 
 export async function clearToken(): Promise<void> {
+  if (onWeb) {
+    globalThis.localStorage?.removeItem(TOKEN_KEY);
+    return;
+  }
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 

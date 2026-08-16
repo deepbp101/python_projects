@@ -257,7 +257,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     paddingVertical: 3,
     borderRadius: radius.pill,
-    alignSelf: "flex-start",
+    // No alignSelf: it would pin the badge to the top of a centred row,
+    // floating it above the label it belongs to. The parent decides.
   },
   badgeText: { ...type.caption, fontWeight: "500" },
 

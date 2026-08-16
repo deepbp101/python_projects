@@ -2,23 +2,25 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    // No baseUrl: deprecated in TypeScript 6, and unnecessary since paths are
-    // resolved relative to this file.
     "paths": {
-      "~/*": ["./src/*"],
-      "@/*": ["../src/*"]
+      "~/*": [
+        "./src/*"
+      ],
+      "@/*": [
+        "../src/*"
+      ]
     }
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts",
     "../src/lib/domain/**/*.ts",
     "../src/lib/realtime/events.ts",
     "../src/lib/dates.ts",
     "../src/lib/money.ts",
     "../src/generated/prisma/enums.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

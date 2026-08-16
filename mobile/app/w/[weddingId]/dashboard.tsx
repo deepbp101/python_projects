@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { countdownTo, formatLongDate } from "@/lib/dates";
+import { countdownTo, formatDate, formatLongDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { useCached } from "~/cache";
 import {
@@ -126,10 +126,11 @@ export default function Dashboard() {
                 <Text style={styles.listTitle} numberOfLines={1}>
                   {task.title}
                 </Text>
+                {/* Short form, not formatLongDate: "Saturday, September 12,
+                    2026" wraps to two lines on a 390px phone and squeezes the
+                    task title it is annotating down to an ellipsis. */}
                 <Text style={styles.listMeta}>
-                  {task.dueDate
-                    ? formatLongDate(new Date(task.dueDate))
-                    : ""}
+                  {task.dueDate ? formatDate(task.dueDate) : ""}
                 </Text>
               </View>
             ))}
@@ -298,6 +299,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: space.sm,
   },
-  listTitle: { ...type.body, color: colors.ink, flexShrink: 1 },
-  listMeta: { ...type.caption, color: colors.inkFaint },
+  listTitle: { ...type.body, color: colors.ink, flex: 1 },
+  // Fixed-width so the short date never wraps and the title keeps the rest.
+  listMeta: { ...type.caption, color: colors.inkFaint, width: 92, textAlign: "right" },
 });

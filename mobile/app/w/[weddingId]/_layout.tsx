@@ -1,4 +1,5 @@
 import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, space, type } from "~/theme";
 import { BudgetIcon, ChecklistIcon, HomeIcon } from "~/components/icons";
 
@@ -11,6 +12,8 @@ import { BudgetIcon, ChecklistIcon, HomeIcon } from "~/components/icons";
  * tab rather than by squeezing the bar.
  */
 export default function WorkspaceLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
@@ -20,8 +23,14 @@ export default function WorkspaceLayout() {
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.line,
+          // Sized explicitly rather than left to the default. Without the
+          // inset the labels sit under the home indicator on a notched phone
+          // and are clipped outright in a browser preview.
+          height: 64 + insets.bottom,
+          paddingBottom: insets.bottom,
+          paddingTop: space.sm,
         },
-        tabBarLabelStyle: { ...type.caption, marginBottom: space.xs },
+        tabBarLabelStyle: { ...type.caption, marginTop: 2 },
         sceneStyle: { backgroundColor: colors.canvas },
       }}
     >
