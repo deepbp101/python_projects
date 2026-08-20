@@ -10,7 +10,19 @@ import { Platform } from "react-native";
  * has no cookie jar shared with fetch. The server accepts either.
  */
 
+/**
+ * Where the backend lives.
+ *
+ * EXPO_PUBLIC_API_URL wins, because that is what an EAS build profile sets —
+ * a development build points at a laptop on the LAN, a production build at the
+ * deployed server, and neither should mean editing a checked-in file. The
+ * `extra.apiUrl` in app.json is the fallback for `npx expo start` locally.
+ *
+ * Public by nature: it is baked into the bundle and anyone can read it. That is
+ * fine — it is a hostname, not a secret. Nothing secret is ever put here.
+ */
 export const API_URL: string =
+  process.env.EXPO_PUBLIC_API_URL ??
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
   "http://localhost:3000";
 

@@ -111,6 +111,44 @@ Not omissions — each is a thing a phone is worse at:
 The phone does own one thing outright: **moderating guest photos**. That happens
 in gaps — in a taxi, over coffee — and it is one two-state decision per item.
 
+## Building for the App Store and Play Store
+
+`eas.json` holds three profiles and has been validated against the eas-cli 22
+schema. `app.json` already carries the bundle identifiers
+(`com.deepbp101.weddingplanner`) and `newArchEnabled`.
+
+```bash
+npm install -g eas-cli
+eas login                 # your Expo account
+eas init                  # links this folder to an EAS project, writes projectId
+eas build --profile preview  --platform all   # installable build to try
+eas build --profile production --platform all # store-ready
+```
+
+| Profile | What it gives you |
+| --- | --- |
+| `development` | Dev client, internal distribution. Points at a LAN address. |
+| `preview` | Android APK you can sideload, iOS build for TestFlight or a registered device. |
+| `production` | AAB and IPA for the stores, with `autoIncrement` on the build number. |
+
+**Set the API URL before building.** Each profile carries
+`EXPO_PUBLIC_API_URL`, and the placeholders in `eas.json` are not real —
+`preview` and `production` both point at `wedding-planner.example.com`. A build
+made against `localhost` is a build that cannot reach anything, because on a
+phone `localhost` is the phone.
+
+The first `eas build` for each platform will ask about signing:
+
+- **Android** — let EAS generate and keep the keystore. It is the default and
+  the right answer unless you already have one.
+- **iOS** — needs an Apple Developer account ($99/yr). EAS can create the
+  certificate and provisioning profile for you from an App Store Connect API
+  key. There is no way around the paid account for a store build or TestFlight;
+  a free account can only install to your own device for seven days at a time.
+
+Android has no equivalent fee for building, only a one-time $25 to publish on
+Play.
+
 ## Notes
 
 - `babel.config.js` is `babel-preset-expo` alone. It handles worklets and
