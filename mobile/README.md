@@ -114,16 +114,26 @@ in gaps — in a taxi, over coffee — and it is one two-state decision per item
 ## Building for the App Store and Play Store
 
 `eas.json` holds three profiles and has been validated against the eas-cli 22
-schema. `app.json` already carries the bundle identifiers
-(`com.deepbp101.weddingplanner`) and `newArchEnabled`.
+schema. `app.json` carries the bundle identifiers
+(`com.aideepsteam.weddingplanner`) and `newArchEnabled`.
+
+**Run every `eas` command from this `mobile/` directory, with dependencies
+installed.** EAS reads `app.json` and `node_modules/expo` from the working
+directory; run it from the repo root and it finds neither, then fails with
+"Cannot determine which native SDK version your project uses because the module
+`expo` is not installed" and "Cannot find 'expo-modules-autolinking'".
 
 ```bash
+cd mobile
+npm install               # expo must be in node_modules here
 npm install -g eas-cli
-eas login                 # your Expo account
-eas init                  # links this folder to an EAS project, writes projectId
-eas build --profile preview  --platform all   # installable build to try
-eas build --profile production --platform all # store-ready
+eas login
+eas build --profile preview --platform all
 ```
+
+`eas init` is already done — `app.json` carries the `owner`, `slug` and
+`extra.eas.projectId` for `@aideeps-team/wedding-planner`. Running `eas init`
+again would create a second project.
 
 | Profile | What it gives you |
 | --- | --- |
