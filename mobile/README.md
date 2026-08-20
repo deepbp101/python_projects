@@ -91,14 +91,25 @@ Sign-in and sign-up, the wedding picker, and five tabs:
 - **Guests** — RSVP counts, search and filters, tap a reply to change it
 - **Seating** — tap a guest, tap a table
 
-Six screens remain web-only: vendors, mood board, website builder, photos and
-guest book, the assistant, and settings.
+Plus a **More** sheet holding the other six — vendors, wedding website, photos
+and guest book, mood board, assistant, and settings & plan. A stack rather than
+more tabs: these are visited occasionally and read more than they are edited,
+so a menu costs nothing while a seventh tab would take width from the five used
+daily.
 
-Two things stay on the web deliberately rather than by omission. Laying out the
-room — dragging tables around a floor plan — wants a screen bigger than a
-fingertip, so the phone seats people into tables that already exist. And guests
-are added and imported on the web; the phone is for checking and updating them,
-which is what you do at a venue.
+### What stays on the web, deliberately
+
+Not omissions — each is a thing a phone is worse at:
+
+- **Laying out the room.** Dragging tables around a floor plan wants a screen
+  bigger than a fingertip. The phone seats people into tables that already exist.
+- **Adding and importing guests.** The phone is for checking and updating them,
+  which is what you do at a venue.
+- **Writing website copy, vendor replies and AI briefs.** All want a paragraph
+  typed out.
+
+The phone does own one thing outright: **moderating guest photos**. That happens
+in gaps — in a taxi, over coffee — and it is one two-state decision per item.
 
 ## Notes
 

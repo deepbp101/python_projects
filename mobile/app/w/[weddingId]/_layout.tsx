@@ -6,16 +6,17 @@ import {
   ChecklistIcon,
   GuestsIcon,
   HomeIcon,
+  MoreIcon,
   SeatingIcon,
 } from "~/components/icons";
 
 /**
- * Five tabs, not eleven.
+ * Five destinations and a More sheet.
  *
  * The web nav learned this the hard way: eleven destinations across a phone
- * gave 32px targets with labels running together. Five is where this bar stops
- * — at 390px that is 78px per target, still comfortably past the 44px minimum.
- * The remaining six screens go behind a More sheet rather than a sixth tab.
+ * gave 32px targets with labels running together. Six slots at 390px is 65px
+ * each, still comfortably past the 44px minimum — and the sixth is a menu, not
+ * a twelfth destination crammed in.
  */
 export default function WorkspaceLayout() {
   const insets = useSafeAreaInsets();
@@ -73,6 +74,13 @@ export default function WorkspaceLayout() {
         options={{
           title: "Seating",
           tabBarIcon: ({ color }) => <SeatingIcon color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: "More",
+          tabBarIcon: ({ color }) => <MoreIcon color={color} />,
         }}
       />
     </Tabs>
