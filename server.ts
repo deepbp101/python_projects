@@ -86,9 +86,29 @@ app.prepare().then(() => {
     handle(req, res);
   });
 
+  /**
+   * Rooms live in this process's memory.
+   *
+   * That is the one thing tying the app to a single machine, and it is a
+   * deliberate trade rather than an oversight: one machine is comfortably
+   * enough for a wedding, and the Redis an adapter needs would be the only
+   * piece of infrastructure here that exists purely to support scaling.
+   *
+   * Everything else already survives more than one process — rate limits are
+   * counted in Postgres, sessions are database rows, and the only module-level
+   * caches are memoised SDK clients that are meant to be per-process.
+   *
+   * So if this ever needs a second machine, the whole change is
+   * `@socket.io/redis-adapter` here plus a Redis URL; nothing above this line
+   * moves. Without it, two collaborators can be in the "same" room on different
+   * machines and never see each other's edits — which fails silently, looking
+   * like realtime that just stopped working.
+   */
   const io = new Server(httpServer, {
     path: "/api/socket",
     // Same-origin only: the browser sends the session cookie automatically.
+    // The native app has no cookie and no Origin header, so this does not
+    // affect it — see `authenticate` above.
     cors: { origin: false },
   });
 
