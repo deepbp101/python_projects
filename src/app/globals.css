@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/*
+ * Calm, warm palette. Wedding planning is stressful enough — the interface
+ * stays quiet, and colour is reserved for status (over budget, overdue,
+ * declined) so those read instantly.
+ */
+@theme {
+  --color-canvas: #faf7f2;
+  --color-surface: #ffffff;
+  --color-surface-sunk: #f4efe7;
+  --color-line: #e7ded1;
+  --color-line-strong: #d6c9b6;
+
+  --color-ink: #2f2a26;
+  --color-ink-soft: #6c6259;
+  --color-ink-faint: #9a9089;
+
+  --color-clay: #b08968;
+  --color-clay-dark: #8c6e50;
+  --color-clay-soft: #f2e7db;
+
+  --color-sage: #7d8471;
+  --color-sage-soft: #eaeee5;
+
+  --color-rose: #b9868b;
+  --color-rose-soft: #f7e9ea;
+
+  --color-alert: #b5652f;
+  --color-alert-soft: #fbeade;
+  --color-danger: #9d4040;
+  --color-danger-soft: #f8e4e4;
+
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers that change every second (the countdown) must not reflow the layout. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

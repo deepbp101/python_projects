@@ -1,0 +1,1100 @@
+// Wedding planner — Phase 1 data model.
+//
+// Money is stored everywhere as integer cents to keep arithmetic exact;
+// see src/lib/money.ts for the formatting/parsing helpers.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions           Session[]
+  collaborations     Collaborator[]  @relation("CollaboratorUser")
+  invitesSent        Collaborator[]  @relation("CollaboratorInvitedBy")
+  tasksCompleted     Task[]          @relation("TaskCompletedBy")
+  uploads            Upload[]        @relation("UploadCreatedBy")
+  moodItems          MoodBoardItem[] @relation("MoodItemCreatedBy")
+  vendorsAdded       Vendor[]        @relation("VendorCreatedBy")
+  vendorsShortlisted WeddingVendor[] @relation("WeddingVendorAddedBy")
+  vendorReviews      VendorReview[]  @relation("VendorReviewAuthor")
+  messagesSent       Message[]       @relation("MessageAuthor")
+  sharesMade         ThreadShare[]   @relation("ThreadShareSharedBy")
+  vendorMediaAdded   VendorMedia[]   @relation("VendorMediaCreatedBy")
+  aiDrafts           AiDraft[]       @relation("AiDraftCreatedBy")
+
+  @@map("users")
+}
+
+/// Server-side sessions. Only the SHA-256 hash of the cookie token is stored,
+/// so a database leak does not hand out live sessions.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ---------------------------------------------------------------------------
+// Workspace
+// ---------------------------------------------------------------------------
+
+enum CollaboratorRole {
+  OWNER
+  PARTNER
+  PLANNER
+  FAMILY
+}
+
+enum CollaboratorStatus {
+  INVITED
+  ACTIVE
+  REMOVED
+}
+
+enum WorkspaceSection {
+  TASKS
+  BUDGET
+  GUESTS
+  VENDORS
+  SEATING
+  MOODBOARD
+  WEBSITE
+}
+
+enum AccessLevel {
+  NONE
+  VIEW
+  EDIT
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+model Wedding {
+  id             String    @id @default(cuid())
+  slug           String    @unique
+  title          String
+  weddingDate    DateTime
+  venueName      String?
+  location       String?
+  timezone       String    @default("UTC")
+  currency       String    @default("USD")
+  totalBudget    Int       @default(0)
+  /// What this workspace is entitled to. See src/lib/domain/plans.ts — the plan
+  /// is the only thing stored; every limit is derived from it, so changing the
+  /// allowances is a code change rather than a data migration.
+  plan           Plan      @default(FREE)
+  /// When Pro was unlocked. Pro is bought once for this wedding, not rented, so
+  /// there is no renewal date and no expiry — this is a record of the event, kept
+  /// so the couple can be told when it happened and support can answer "since
+  /// when?". Null on Free.
+  planUnlockedAt DateTime?
+  coverImageUrl  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  collaborators    Collaborator[]
+  tasks            Task[]
+  budgetCategories BudgetCategory[]
+  budgetItems      BudgetItem[]
+  households       Household[]
+  guests           Guest[]
+  guestTags        GuestTag[]
+  mealOptions      MealOption[]
+  uploads          Upload[]
+  site             WeddingSite?
+  seatingTables    SeatingTable[]
+  moodBoard        MoodBoard?
+  vendors          WeddingVendor[]
+  vendorReviews    VendorReview[]
+  galleryPhotos    GalleryPhoto[]
+  guestBookEntries GuestBookEntry[]
+  aiDrafts         AiDraft[]
+  styleProfile     StyleProfile?
+  aiUsage          AiUsage[]
+  unlockCode       UnlockCode?
+
+  @@map("weddings")
+}
+
+/// A one-time Pro unlock, redeemed by typing a code into the settings page.
+///
+/// Pro is bought once for one wedding, so redemption is a one-way door: a code
+/// carries `redeemedAt` and the wedding that used it, and the unique constraint on
+/// `weddingId` means a wedding cannot stack two.
+///
+/// There is no payment provider yet, so codes are minted out of band
+/// (`npm run plan:mint-code`). When one is wired up, its webhook mints and redeems
+/// a code and nothing else in the app changes — which is the point of making the
+/// unlock an event rather than a flag someone flips.
+model UnlockCode {
+  id         String    @id @default(cuid())
+  /// Only the hash is stored, like every other credential here. A lost code
+  /// cannot be recovered, only reissued.
+  codeHash   String    @unique
+  /// Who it was issued to or why — free text for whoever mints it.
+  label      String?
+  weddingId  String?   @unique
+  redeemedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  wedding Wedding? @relation(fields: [weddingId], references: [id], onDelete: SetNull)
+
+  @@map("unlock_codes")
+}
+
+/// Membership of a wedding workspace. A row exists from the moment an invite is
+/// sent; `userId` stays null until the invitee accepts and has an account.
+model Collaborator {
+  id              String             @id @default(cuid())
+  weddingId       String
+  userId          String?
+  email           String
+  name            String?
+  role            CollaboratorRole   @default(FAMILY)
+  status          CollaboratorStatus @default(INVITED)
+  inviteTokenHash String?            @unique
+  inviteExpiresAt DateTime?
+  invitedById     String?
+  joinedAt        DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  wedding       Wedding                  @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  user          User?                    @relation("CollaboratorUser", fields: [userId], references: [id], onDelete: SetNull)
+  invitedBy     User?                    @relation("CollaboratorInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  permissions   CollaboratorPermission[]
+  assignedTasks Task[]                   @relation("TaskAssignedTo")
+
+  @@unique([weddingId, email])
+  @@index([weddingId])
+  @@index([userId])
+  @@map("collaborators")
+}
+
+/// Per-section access. Rows are only consulted for non-owner roles; OWNER and
+/// PARTNER always resolve to EDIT (see src/lib/permissions.ts).
+model CollaboratorPermission {
+  id             String           @id @default(cuid())
+  collaboratorId String
+  section        WorkspaceSection
+  access         AccessLevel      @default(VIEW)
+
+  collaborator Collaborator @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+
+  @@unique([collaboratorId, section])
+  @@map("collaborator_permissions")
+}
+
+// ---------------------------------------------------------------------------
+// Checklist
+// ---------------------------------------------------------------------------
+
+enum Milestone {
+  TWELVE_MONTHS
+  NINE_MONTHS
+  SIX_MONTHS
+  THREE_MONTHS
+  ONE_MONTH
+  ONE_WEEK
+  DAY_OF
+  AFTER
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Task {
+  id            String       @id @default(cuid())
+  weddingId     String
+  title         String
+  description   String?
+  category      String       @default("General")
+  milestone     Milestone
+  dueDate       DateTime?
+  priority      TaskPriority @default(MEDIUM)
+  /// False for tasks generated from the default timeline catalog.
+  isCustom      Boolean      @default(false)
+  /// Stable key of the catalog entry this task came from, so regenerating the
+  /// timeline does not duplicate tasks the couple already has.
+  templateKey   String?
+  sortOrder     Int          @default(0)
+  completedAt   DateTime?
+  completedById String?
+  assignedToId  String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  wedding     Wedding       @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  completedBy User?         @relation("TaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  assignedTo  Collaborator? @relation("TaskAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@unique([weddingId, templateKey])
+  @@index([weddingId, milestone])
+  @@index([weddingId, dueDate])
+  @@map("tasks")
+}
+
+// ---------------------------------------------------------------------------
+// Budget
+// ---------------------------------------------------------------------------
+
+model BudgetCategory {
+  id                String   @id @default(cuid())
+  weddingId         String
+  name              String
+  plannedAmount     Int      @default(0)
+  /// Percentage of `plannedAmount` at which the UI warns the couple.
+  alertThresholdPct Int      @default(90)
+  color             String   @default("#B08968")
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  wedding Wedding      @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  items   BudgetItem[]
+
+  @@unique([weddingId, name])
+  @@index([weddingId])
+  @@map("budget_categories")
+}
+
+model BudgetItem {
+  id            String   @id @default(cuid())
+  weddingId     String
+  categoryId    String
+  name          String
+  vendorName    String?
+  plannedAmount Int      @default(0)
+  /// Set manually for one-off costs; when the item has payments, the payment
+  /// total is what the rollups use instead (see src/lib/domain/budget.ts).
+  actualAmount  Int      @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  wedding      Wedding         @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  category     BudgetCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  payments     Payment[]
+  vendorLinks  WeddingVendor[]
+  threadShares ThreadShare[]
+
+  @@index([weddingId])
+  @@index([categoryId])
+  @@map("budget_items")
+}
+
+/// Deposits and installments. Weddings are rarely paid in one go, so due-date
+/// reminders hang off individual payments rather than the line item.
+model Payment {
+  id           String    @id @default(cuid())
+  budgetItemId String
+  label        String    @default("Payment")
+  amount       Int
+  dueDate      DateTime?
+  paidAt       DateTime?
+  method       String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  budgetItem BudgetItem @relation(fields: [budgetItemId], references: [id], onDelete: Cascade)
+
+  @@index([budgetItemId])
+  @@index([dueDate])
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// Guests & RSVP
+// ---------------------------------------------------------------------------
+
+enum AgeGroup {
+  ADULT
+  CHILD
+  INFANT
+}
+
+enum RsvpStatus {
+  PENDING
+  ATTENDING
+  DECLINED
+  MAYBE
+}
+
+/// Invitations are addressed to a household, not to an individual, so the
+/// mailing address lives here and guests inherit it.
+model Household {
+  id           String   @id @default(cuid())
+  weddingId    String
+  name         String
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  guests  Guest[]
+
+  @@index([weddingId])
+  @@map("households")
+}
+
+model Guest {
+  id                  String   @id @default(cuid())
+  weddingId           String
+  householdId         String?
+  firstName           String
+  lastName            String
+  email               String?
+  phone               String?
+  ageGroup            AgeGroup @default(ADULT)
+  dietaryRestrictions String?
+  notes               String?
+  plusOneAllowed      Boolean  @default(false)
+  /// A plus-one is a full guest row pointing back at its host, so it can carry
+  /// its own meal choice and dietary needs.
+  plusOneOfGuestId    String?  @unique
+  /// Personal itinerary link. Only the hash is stored, like every other token.
+  itineraryTokenHash  String?  @unique
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  wedding   Wedding           @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  household Household?        @relation(fields: [householdId], references: [id], onDelete: SetNull)
+  plusOneOf Guest?            @relation("GuestPlusOne", fields: [plusOneOfGuestId], references: [id], onDelete: Cascade)
+  plusOne   Guest?            @relation("GuestPlusOne")
+  rsvp      Rsvp?
+  tags      GuestTagOnGuest[]
+  seat      SeatAssignment?
+
+  @@index([weddingId])
+  @@index([householdId])
+  @@map("guests")
+}
+
+model GuestTag {
+  id        String   @id @default(cuid())
+  weddingId String
+  name      String
+  color     String   @default("#7D8471")
+  createdAt DateTime @default(now())
+
+  wedding Wedding           @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  guests  GuestTagOnGuest[]
+
+  @@unique([weddingId, name])
+  @@index([weddingId])
+  @@map("guest_tags")
+}
+
+model GuestTagOnGuest {
+  guestId String
+  tagId   String
+
+  guest Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  tag   GuestTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([guestId, tagId])
+  @@index([tagId])
+  @@map("guest_tags_on_guests")
+}
+
+model MealOption {
+  id          String   @id @default(cuid())
+  weddingId   String
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  rsvps   Rsvp[]
+
+  @@unique([weddingId, name])
+  @@index([weddingId])
+  @@map("meal_options")
+}
+
+model Rsvp {
+  id           String     @id @default(cuid())
+  guestId      String     @unique
+  status       RsvpStatus @default(PENDING)
+  mealOptionId String?
+  respondedAt  DateTime?
+  message      String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  guest      Guest       @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  mealOption MealOption? @relation(fields: [mealOptionId], references: [id], onDelete: SetNull)
+
+  @@index([mealOptionId])
+  @@map("rsvps")
+}
+
+// ---------------------------------------------------------------------------
+// Uploads (Phase 2)
+// ---------------------------------------------------------------------------
+
+/// A stored file. The bytes live behind a storage driver (local disk in
+/// development, S3-compatible in production — see src/lib/storage), and this
+/// row is the only thing the rest of the app references.
+model Upload {
+  id           String   @id @default(cuid())
+  weddingId    String
+  /// Opaque key the storage driver resolves; never a user-supplied path.
+  storageKey   String   @unique
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  width        Int?
+  height       Int?
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  wedding        Wedding            @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  createdBy      User?              @relation("UploadCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  moodBoardItem  MoodBoardItem?
+  siteCoverFor   WeddingSite?
+  attachedTo     MessageAttachment?
+  galleryPhoto   GalleryPhoto?
+  guestBookEntry GuestBookEntry?
+  vendorMedia    VendorMedia?
+
+  @@index([weddingId])
+  @@map("uploads")
+}
+
+// ---------------------------------------------------------------------------
+// Wedding website (Phase 2)
+// ---------------------------------------------------------------------------
+
+enum SiteTemplate {
+  CLASSIC
+  GARDEN
+  MODERN
+}
+
+/// The couple's public-facing site. Exists whether or not it is published;
+/// `publishedAt` is what makes it reachable at /wedding/[slug].
+model WeddingSite {
+  id                 String       @id @default(cuid())
+  weddingId          String       @unique
+  /// Public URL segment, separate from the workspace slug so the couple can
+  /// choose something shareable without changing internal links.
+  slug               String       @unique
+  template           SiteTemplate @default(CLASSIC)
+  headline           String?
+  intro              String?
+  storyTitle         String       @default("Our story")
+  story              String?
+  travelTitle        String       @default("Travel & stays")
+  travel             String?
+  registryNote       String?
+  /// Shown to guests so they know when to reply by.
+  rsvpDeadline       DateTime?
+  rsvpNote           String?
+  /// Guest-facing extras, off until the couple turns them on. They live under the
+  /// published site rather than behind their own token: the site link is already
+  /// the thing guests have, and a second link is a second thing to lose.
+  galleryEnabled     Boolean      @default(false)
+  galleryNote        String?
+  guestBookEnabled   Boolean      @default(false)
+  guestBookNote      String?
+  /// When true, guest submissions stay hidden until the couple approves them.
+  moderateGuestPosts Boolean      @default(true)
+  publishedAt        DateTime?
+  coverUploadId      String?      @unique
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  wedding    Wedding        @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  coverImage Upload?        @relation(fields: [coverUploadId], references: [id], onDelete: SetNull)
+  events     SiteEvent[]
+  registry   RegistryLink[]
+
+  @@map("wedding_sites")
+}
+
+/// Ceremony, reception, welcome drinks, farewell brunch — anything with a time
+/// and a place that guests need to know about.
+model SiteEvent {
+  id          String    @id @default(cuid())
+  siteId      String
+  name        String
+  startsAt    DateTime
+  endsAt      DateTime?
+  venueName   String?
+  address     String?
+  description String?
+  dressCode   String?
+  mapUrl      String?
+  sortOrder   Int       @default(0)
+
+  site WeddingSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId])
+  @@map("site_events")
+}
+
+model RegistryLink {
+  id        String  @id @default(cuid())
+  siteId    String
+  label     String
+  url       String
+  note      String?
+  sortOrder Int     @default(0)
+
+  site WeddingSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId])
+  @@map("registry_links")
+}
+
+// ---------------------------------------------------------------------------
+// Seating chart (Phase 2)
+// ---------------------------------------------------------------------------
+
+enum TableShape {
+  ROUND
+  RECTANGLE
+  HEAD
+}
+
+/// A table on the floor plan. `x` and `y` are percentages of the canvas
+/// (0-100) rather than pixels, so a chart laid out on a laptop still reads
+/// correctly on a phone.
+model SeatingTable {
+  id        String     @id @default(cuid())
+  weddingId String
+  name      String
+  shape     TableShape @default(ROUND)
+  capacity  Int        @default(8)
+  x         Float      @default(50)
+  y         Float      @default(50)
+  rotation  Int        @default(0)
+  notes     String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  wedding     Wedding          @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  assignments SeatAssignment[]
+
+  @@unique([weddingId, name])
+  @@index([weddingId])
+  @@map("seating_tables")
+}
+
+/// One guest at one table. `guestId` is unique, so a guest cannot be seated in
+/// two places at once — the database enforces it rather than the UI.
+model SeatAssignment {
+  id        String   @id @default(cuid())
+  tableId   String
+  guestId   String   @unique
+  seatIndex Int?
+  createdAt DateTime @default(now())
+
+  table SeatingTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  guest Guest        @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@map("seat_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// Mood board (Phase 2)
+// ---------------------------------------------------------------------------
+
+enum MoodCategory {
+  ATTIRE
+  FLORALS
+  DECOR
+  VENUE
+  CAKE
+  STATIONERY
+  BEAUTY
+  OTHER
+}
+
+/// Created lazily the first time the couple opens the mood board. Sharing is a
+/// property of the board, so revoking a link kills access to every image at once.
+model MoodBoard {
+  id             String    @id @default(cuid())
+  weddingId      String    @unique
+  title          String    @default("Our vision")
+  /// Only the hash of the share token is stored, same as sessions and invites.
+  shareTokenHash String?   @unique
+  sharedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  wedding      Wedding         @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  items        MoodBoardItem[]
+  threadShares ThreadShare[]
+
+  @@map("mood_boards")
+}
+
+model MoodBoardItem {
+  id          String       @id @default(cuid())
+  boardId     String
+  uploadId    String?      @unique
+  category    MoodCategory @default(OTHER)
+  title       String?
+  note        String?
+  /// Where the couple found it, so credit survives the download.
+  sourceUrl   String?
+  sortOrder   Int          @default(0)
+  createdById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  board     MoodBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  upload    Upload?   @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("MoodItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([boardId, category])
+  @@map("mood_board_items")
+}
+
+// ---------------------------------------------------------------------------
+// Vendors & messaging (Phase 3)
+// ---------------------------------------------------------------------------
+
+enum VendorCategory {
+  VENUE
+  CATERING
+  PHOTOGRAPHY
+  VIDEOGRAPHY
+  FLORIST
+  MUSIC
+  CAKE
+  ATTIRE
+  BEAUTY
+  STATIONERY
+  RENTALS
+  TRANSPORT
+  OFFICIANT
+  PLANNING
+  OTHER
+}
+
+/// A business, shared across every wedding in the app.
+///
+/// Ratings only mean anything if couples review the *same* row, so this table is
+/// readable by any signed-in user and deliberately holds nothing private. What
+/// one couple thinks, pays or decides about a vendor lives on WeddingVendor.
+model Vendor {
+  id          String         @id @default(cuid())
+  slug        String         @unique
+  name        String
+  category    VendorCategory @default(OTHER)
+  city        String?
+  region      String?
+  country     String?
+  website     String?
+  email       String?
+  phone       String?
+  /// 1-4, shown as $ to $$$$. A rough band, not a quote.
+  priceTier   Int?
+  description String?
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  createdBy    User?           @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  reviews      VendorReview[]
+  shortlists   WeddingVendor[]
+  vendorMedias VendorMedia[]
+
+  @@index([category])
+  @@index([city])
+  @@map("vendors")
+}
+
+enum VendorStatus {
+  CONSIDERING
+  CONTACTED
+  QUOTED
+  BOOKED
+  DECLINED
+}
+
+/// One wedding's dealings with one vendor: the couple's own status, private
+/// notes, the contact they deal with, and which budget line pays for it.
+model WeddingVendor {
+  id           String       @id @default(cuid())
+  weddingId    String
+  vendorId     String
+  status       VendorStatus @default(CONSIDERING)
+  contactName  String?
+  contactEmail String?
+  /// Private to the workspace — never sent to the vendor.
+  notes        String?
+  budgetItemId String?
+  addedById    String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  wedding    Wedding       @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  vendor     Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  budgetItem BudgetItem?   @relation(fields: [budgetItemId], references: [id], onDelete: SetNull)
+  addedBy    User?         @relation("WeddingVendorAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  thread     VendorThread?
+
+  @@unique([weddingId, vendorId])
+  @@index([weddingId])
+  @@index([vendorId])
+  @@map("wedding_vendors")
+}
+
+/// One review per wedding per vendor, so a couple cannot stack up ratings.
+/// Aggregates are computed on read rather than denormalised onto Vendor —
+/// a cached average that drifts is worse than a join.
+model VendorReview {
+  id        String   @id @default(cuid())
+  vendorId  String
+  weddingId String
+  authorId  String?
+  /// 1-5 stars.
+  rating    Int
+  title     String?
+  body      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  author  User?   @relation("VendorReviewAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([vendorId, weddingId])
+  @@index([vendorId])
+  @@map("vendor_reviews")
+}
+
+/// The conversation with a vendor.
+///
+/// Kept separate from WeddingVendor on purpose: the vendor-facing page loads a
+/// thread, and a thread has no private notes or status on it. A florist reading
+/// their own messages cannot be shown "DECLINED — too expensive" by a careless
+/// `include`, because that column is not reachable from here.
+model VendorThread {
+  id              String    @id @default(cuid())
+  weddingVendorId String    @unique
+  subject         String?
+  /// Vendors reply without an account; the token in their link is the whole
+  /// credential, so only its hash is stored (same as sessions and invites).
+  accessTokenHash String?   @unique
+  accessGrantedAt DateTime?
+  lastMessageAt   DateTime?
+  /// Read receipts, one per side, for unread badges.
+  coupleReadAt    DateTime?
+  vendorReadAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  weddingVendor WeddingVendor @relation(fields: [weddingVendorId], references: [id], onDelete: Cascade)
+  messages      Message[]
+  shares        ThreadShare[]
+
+  @@map("vendor_threads")
+}
+
+/// A message in a vendor thread. `authorId` is null for the vendor's own
+/// replies, which arrive through a share link and have no user row behind them.
+model Message {
+  id         String   @id @default(cuid())
+  threadId   String
+  authorId   String?
+  /// Display name for a vendor reply, captured at send time.
+  authorName String?
+  body       String
+  createdAt  DateTime @default(now())
+
+  thread      VendorThread        @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author      User?               @relation("MessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  attachments MessageAttachment[]
+  shares      ThreadShare[]
+
+  @@index([threadId, createdAt])
+  @@map("messages")
+}
+
+/// Files sent in a thread — quotes and contracts as often as photos, which is
+/// why attachments accept PDFs where the mood board takes images only.
+model MessageAttachment {
+  id        String @id @default(cuid())
+  messageId String
+  uploadId  String @unique
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  upload  Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+/// Something from the workspace made visible inside one vendor thread.
+///
+/// Exactly one of `moodBoardId` / `budgetItemId` is set. Real foreign keys are
+/// used rather than a polymorphic id, so deleting a budget line takes its shares
+/// with it instead of leaving the vendor pointing at nothing.
+///
+/// Revoking sets `revokedAt` rather than deleting, so the message announcing the
+/// share still reads correctly in the history.
+model ThreadShare {
+  id           String    @id @default(cuid())
+  threadId     String
+  moodBoardId  String?
+  budgetItemId String?
+  messageId    String?
+  sharedById   String?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  thread     VendorThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  moodBoard  MoodBoard?   @relation(fields: [moodBoardId], references: [id], onDelete: Cascade)
+  budgetItem BudgetItem?  @relation(fields: [budgetItemId], references: [id], onDelete: Cascade)
+  message    Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  sharedBy   User?        @relation("ThreadShareSharedBy", fields: [sharedById], references: [id], onDelete: SetNull)
+
+  // Postgres treats nulls as distinct, so these stop the same resource being
+  // shared twice into one thread without blocking rows for the other kind.
+  @@unique([threadId, moodBoardId])
+  @@unique([threadId, budgetItemId])
+  @@index([threadId])
+  @@map("thread_shares")
+}
+
+// ---------------------------------------------------------------------------
+// Guest contributions (Phase 4)
+// ---------------------------------------------------------------------------
+
+/// A photo a guest uploaded from the reception, or the couple added afterwards.
+///
+/// Guests reach this through the published wedding site — no account, no token of
+/// their own. `approvedAt` is what makes a submission visible when the couple has
+/// moderation on, which it is by default: anyone with the link can post, so the
+/// couple decides what appears rather than discovering it later.
+model GalleryPhoto {
+  id           String    @id @default(cuid())
+  weddingId    String
+  uploadId     String    @unique
+  caption      String?
+  /// Whatever the guest typed. Unverified by definition.
+  uploaderName String?
+  approvedAt   DateTime?
+  hiddenAt     DateTime?
+  createdAt    DateTime  @default(now())
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  upload  Upload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@index([weddingId, createdAt])
+  @@map("gallery_photos")
+}
+
+enum GuestBookKind {
+  TEXT
+  VOICE
+  VIDEO
+}
+
+/// A guest book entry. Voice and video are recordings stored like any other
+/// upload; text entries have no upload at all, which is why `uploadId` is
+/// nullable rather than the kind being implied by its presence.
+model GuestBookEntry {
+  id         String        @id @default(cuid())
+  weddingId  String
+  kind       GuestBookKind @default(TEXT)
+  guestName  String
+  message    String?
+  uploadId   String?       @unique
+  approvedAt DateTime?
+  hiddenAt   DateTime?
+  createdAt  DateTime      @default(now())
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  upload  Upload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+
+  @@index([weddingId, createdAt])
+  @@map("guest_book_entries")
+}
+
+// ---------------------------------------------------------------------------
+// Vendor media & virtual tours (Phase 4)
+// ---------------------------------------------------------------------------
+
+enum VendorMediaKind {
+  PHOTO
+  /// Equirectangular panorama, shown in the drag-to-pan viewer.
+  PANORAMA
+  /// An externally hosted walkthrough (Matterport and friends), embedded.
+  TOUR_URL
+  VIDEO_URL
+}
+
+/// Media on a vendor's directory profile, including 360° venue tours.
+///
+/// Hosted media points at an Upload, which belongs to whichever wedding uploaded
+/// it — the bytes have an owner even though the listing is shared. Access is
+/// widened for exactly this case in src/lib/services/uploads.ts.
+model VendorMedia {
+  id          String          @id @default(cuid())
+  vendorId    String
+  kind        VendorMediaKind @default(PHOTO)
+  uploadId    String?         @unique
+  url         String?
+  caption     String?
+  sortOrder   Int             @default(0)
+  createdById String?
+  createdAt   DateTime        @default(now())
+
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  upload    Upload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  createdBy User?   @relation("VendorMediaCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, sortOrder])
+  @@map("vendor_media")
+}
+
+// ---------------------------------------------------------------------------
+// AI assistants (Phase 4)
+// ---------------------------------------------------------------------------
+
+enum AiDraftKind {
+  VOWS
+  SPEECH
+  THANK_YOU
+  INVITATION
+}
+
+/// A saved piece of generated writing.
+///
+/// The prompt is kept alongside the output so a draft can be regenerated or
+/// audited later, and `model` records which model wrote it — a draft from a year
+/// ago was not written by whatever is current today.
+model AiDraft {
+  id          String      @id @default(cuid())
+  weddingId   String
+  kind        AiDraftKind
+  title       String
+  /// What the couple asked for, as given to the model.
+  prompt      String
+  content     String
+  model       String
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("AiDraftCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([weddingId, kind])
+  @@map("ai_drafts")
+}
+
+/// The couple's style quiz answers and the themes they scored into.
+///
+/// Answers and scores are stored, not just the prose: the matching is
+/// deterministic (see src/lib/domain/style.ts), so the recommendations can be
+/// recomputed without calling a model, and the model's contribution is only the
+/// summary paragraph.
+model StyleProfile {
+  id        String   @id @default(cuid())
+  weddingId String   @unique
+  /// Quiz answers keyed by question id.
+  answers   Json
+  /// Scored themes, highest first, as computed by the domain layer.
+  themes    Json
+  /// Model-written description of the couple's style. Null when no API key is
+  /// configured — the scored themes stand on their own.
+  summary   String?
+  model     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+
+  @@map("style_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Limits & metering
+// ---------------------------------------------------------------------------
+
+/// A sliding-window counter, used to rate limit endpoints that have no account
+/// behind them.
+///
+/// Stored rather than held in memory so a restart does not hand an abuser a
+/// fresh allowance, and so it still works if this ever runs as more than one
+/// process. The bucket key embeds a hashed client address — raw IPs are never
+/// written down.
+model RateLimit {
+  id          String   @id @default(cuid())
+  bucket      String
+  windowStart DateTime
+  count       Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([bucket, windowStart])
+  @@index([windowStart])
+  @@map("rate_limits")
+}
+
+/// Model usage for one wedding in one calendar month.
+///
+/// Counts what the API actually reported rather than what we asked for, since a
+/// request can stop early — the bill follows real tokens, so the meter should
+/// too. `period` is `YYYY-MM` in UTC.
+model AiUsage {
+  id           String   @id @default(cuid())
+  weddingId    String
+  period       String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  requests     Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  wedding Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+
+  @@unique([weddingId, period])
+  @@map("ai_usage")
+}

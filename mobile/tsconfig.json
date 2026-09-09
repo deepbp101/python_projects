@@ -1,0 +1,26 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "~/*": [
+        "./src/*"
+      ],
+      "@/*": [
+        "../src/*"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../src/lib/domain/**/*.ts",
+    "../src/lib/realtime/events.ts",
+    "../src/lib/dates.ts",
+    "../src/lib/money.ts",
+    "../src/generated/prisma/enums.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
